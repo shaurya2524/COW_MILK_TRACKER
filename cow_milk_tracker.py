@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
-import plotly.express as px
-import plotly.graph_objects as go
 
 # Configure page
 st.set_page_config(
@@ -253,17 +251,17 @@ def show_supervisor_dashboard():
             
             with col1:
                 # Daily production
+                st.markdown("#### Daily Production Trend")
                 daily_production = df.groupby('date')['milk_liters'].sum().reset_index()
-                fig_daily = px.line(daily_production, x='date', y='milk_liters',
-                                  title='Daily Production Trend')
-                st.plotly_chart(fig_daily, use_container_width=True)
+                daily_production['date'] = pd.to_datetime(daily_production['date'])
+                daily_production = daily_production.sort_values('date')
+                st.line_chart(daily_production.set_index('date')['milk_liters'])
             
             with col2:
                 # Worker performance
+                st.markdown("#### Production by Worker")
                 worker_production = df.groupby('worker')['milk_liters'].sum().reset_index()
-                fig_worker = px.bar(worker_production, x='worker', y='milk_liters',
-                                  title='Production by Worker')
-                st.plotly_chart(fig_worker, use_container_width=True)
+                st.bar_chart(worker_production.set_index('worker')['milk_liters'])
             
             # Top performing cows
             st.subheader("Top Performing Cows")
@@ -452,9 +450,10 @@ def show_worker_dashboard():
                 # Production trend
                 daily_production = worker_records.groupby('date')['milk_liters'].sum().reset_index()
                 if len(daily_production) > 1:
-                    fig = px.line(daily_production, x='date', y='milk_liters',
-                                title='Your Daily Production Trend')
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.markdown("#### Your Daily Production Trend")
+                    daily_production['date'] = pd.to_datetime(daily_production['date'])
+                    daily_production = daily_production.sort_values('date')
+                    st.line_chart(daily_production.set_index('date')['milk_liters'])
             else:
                 st.info("No records found. Start logging milk production!")
         else:
