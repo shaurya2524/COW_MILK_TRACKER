@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-
+from google.oauth2.service_account import Credentials
+import json
 
 # Configure page
 st.set_page_config(
@@ -16,105 +16,198 @@ st.set_page_config(
 # Google Sheets Integration Functions
 @st.cache_resource
 def initialize_gsheets_connection():
-    """Initialize Google Sheets connection"""
+    """Initialize Google Sheets connection using gspread"""
     try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        return conn
+        # Define the scope
+        scope = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
+        # Get credentials from Streamlit secrets
+        credentials_dict = {
+            "type": st.secrets["gcp_service_account"]["type"],
+            "project_id": st.secrets["gcp_service_account"]["project_id"],
+            "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
+            "private_key": st.secrets["gcp_service_account"]["private_key"],
+            "client_email": st.secrets["gcp_service_account"]["client_email"],
+            "client_id": st.secrets["gcp_service_account"]["client_id"],
+            "auth_uri": st.secrets["gcp_service_account"]["auth_uri"],
+            "token_uri": st.secrets["gcp_service_account"]["token_uri"],
+            "auth_provider_x509_cert_url": st.secrets["gcp_service_account"]["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"]
+        }
+        
+        # Create credentials
+        credentials = Credentials.from_service_account_info(credentials_dict, scopes=scope)
+        
+        # Authorize and return the client
+        gc = gspread.authorize(credentials)
+        
+        # Open the spreadsheet (replace with your spreadsheet name or URL)
+        spreadsheet_name = st.secrets.get("spreadsheet_name", "Dairy Farm Management")
+        sheet = gc.open(spreadsheet_name)
+        
+        return sheet
     except Exception as e:
         st.error(f"Failed to connect to Google Sheets: {e}")
         return None
 
-def load_workers_from_sheets(conn):
+def get_worksheet(sheet, worksheet_name):
+    """Get or create a worksheet"""
+    try:
+        return sheet.worksheet(worksheet_name)
+    except gspread.WorksheetNotFound:
+        # Create the worksheet if it doesn't exist
+        return sheet.add_worksheet(title=worksheet_name, rows=1000, cols=10)
+
+def load_workers_from_sheets(sheet):
     """Load workers from Google Sheets"""
     try:
-        df = conn.read(worksheet="workers", ttl=0)
-        if df.empty or 'name' not in df.columns:
-            return ["John Doe", "Mary Smith", "David Johnson", "Sarah Wilson"]
-        return df['name'].dropna().tolist()
-    except:
+        worksheet = get_worksheet(sheet, "workers")
+        data = worksheet.get_all_records()
+        
+        if not data:
+            # Initialize with default workers
+            default_workers = ["John Doe", "Mary Smith", "David Johnson", "Sarah Wilson"]
+            worksheet.clear()
+            worksheet.append_row(["name"])
+            for worker in default_workers:
+                worksheet.append_row([worker])
+            return default_workers
+        
+        return [row['name'] for row in data if row.get('name')]
+    except Exception as e:
+        st.error(f"Error loading workers: {e}")
         return ["John Doe", "Mary Smith", "David Johnson", "Sarah Wilson"]
 
-def save_workers_to_sheets(conn, workers):
+def save_workers_to_sheets(sheet, workers):
     """Save workers to Google Sheets"""
     try:
-        df = pd.DataFrame({'name': workers})
-        conn.update(worksheet="workers", data=df)
+        worksheet = get_worksheet(sheet, "workers")
+        worksheet.clear()
+        worksheet.append_row(["name"])
+        for worker in workers:
+            worksheet.append_row([worker])
         return True
     except Exception as e:
         st.error(f"Failed to save workers: {e}")
         return False
 
-def load_cow_assignments_from_sheets(conn):
+def load_cow_assignments_from_sheets(sheet):
     """Load cow assignments from Google Sheets"""
     try:
-        df = conn.read(worksheet="cow_assignments", ttl=0)
-        if df.empty or 'cow_number' not in df.columns:
+        worksheet = get_worksheet(sheet, "cow_assignments")
+        data = worksheet.get_all_records()
+        
+        if not data:
             return {}
-        df = df.dropna()
-        return dict(zip(df['cow_number'].astype(int), df['worker_name']))
-    except:
+        
+        assignments = {}
+        for row in data:
+            if row.get('cow_number') and row.get('worker_name'):
+                try:
+                    cow_num = int(row['cow_number'])
+                    assignments[cow_num] = row['worker_name']
+                except ValueError:
+                    continue
+        
+        return assignments
+    except Exception as e:
+        st.error(f"Error loading cow assignments: {e}")
         return {}
 
-def save_cow_assignments_to_sheets(conn, assignments):
+def save_cow_assignments_to_sheets(sheet, assignments):
     """Save cow assignments to Google Sheets"""
     try:
-        if assignments:
-            df = pd.DataFrame([
-                {'cow_number': cow, 'worker_name': worker}
-                for cow, worker in assignments.items()
-            ])
-        else:
-            df = pd.DataFrame(columns=['cow_number', 'worker_name'])
+        worksheet = get_worksheet(sheet, "cow_assignments")
+        worksheet.clear()
+        worksheet.append_row(["cow_number", "worker_name"])
         
-        conn.update(worksheet="cow_assignments", data=df)
+        for cow_number, worker_name in assignments.items():
+            worksheet.append_row([cow_number, worker_name])
+        
         return True
     except Exception as e:
         st.error(f"Failed to save cow assignments: {e}")
         return False
 
-def load_milk_data_from_sheets(conn):
+def load_milk_data_from_sheets(sheet):
     """Load milk data from Google Sheets"""
     try:
-        df = conn.read(worksheet="milk_data", ttl=0)
-        if df.empty:
+        worksheet = get_worksheet(sheet, "milk_data")
+        data = worksheet.get_all_records()
+        
+        if not data:
             return []
-        df = df.dropna(how='all')
-        return df.to_dict('records')
-    except:
+        
+        # Clean and validate data
+        clean_data = []
+        for row in data:
+            if row.get('date') and row.get('cow_number') and row.get('milk_liters'):
+                try:
+                    # Ensure numeric values are properly converted
+                    row['cow_number'] = int(row['cow_number'])
+                    row['milk_liters'] = float(row['milk_liters'])
+                    clean_data.append(row)
+                except (ValueError, TypeError):
+                    continue
+        
+        return clean_data
+    except Exception as e:
+        st.error(f"Error loading milk data: {e}")
         return []
 
-def save_milk_data_to_sheets(conn, milk_data):
+def save_milk_data_to_sheets(sheet, milk_data):
     """Save all milk data to Google Sheets"""
     try:
-        if milk_data:
-            df = pd.DataFrame(milk_data)
-        else:
-            df = pd.DataFrame(columns=['date', 'time', 'cow_number', 'milk_liters', 'worker', 'notes', 'timestamp'])
+        worksheet = get_worksheet(sheet, "milk_data")
+        worksheet.clear()
         
-        conn.update(worksheet="milk_data", data=df)
+        if milk_data:
+            # Get headers from first record
+            headers = list(milk_data[0].keys())
+            worksheet.append_row(headers)
+            
+            # Add data rows
+            for record in milk_data:
+                row = [record.get(header, '') for header in headers]
+                worksheet.append_row(row)
+        else:
+            # Just add headers if no data
+            headers = ['date', 'time', 'cow_number', 'milk_liters', 'worker', 'notes', 'timestamp']
+            worksheet.append_row(headers)
+        
         return True
     except Exception as e:
         st.error(f"Failed to save milk data: {e}")
         return False
 
-def load_system_config_from_sheets(conn):
+def load_system_config_from_sheets(sheet):
     """Load system config from Google Sheets"""
     try:
-        df = conn.read(worksheet="system_config", ttl=0)
-        if df.empty or 'total_cows' not in df.columns:
+        worksheet = get_worksheet(sheet, "system_config")
+        data = worksheet.get_all_records()
+        
+        if not data:
+            # Initialize with default config
+            worksheet.clear()
+            worksheet.append_row(["total_cows", "last_updated"])
+            worksheet.append_row([50, datetime.now().isoformat()])
             return 50
-        return int(df['total_cows'].iloc[0])
-    except:
+        
+        return int(data[0].get('total_cows', 50))
+    except Exception as e:
+        st.error(f"Error loading system config: {e}")
         return 50
 
-def save_system_config_to_sheets(conn, total_cows):
+def save_system_config_to_sheets(sheet, total_cows):
     """Save system config to Google Sheets"""
     try:
-        df = pd.DataFrame({
-            'total_cows': [total_cows],
-            'last_updated': [datetime.now().isoformat()]
-        })
-        conn.update(worksheet="system_config", data=df)
+        worksheet = get_worksheet(sheet, "system_config")
+        worksheet.clear()
+        worksheet.append_row(["total_cows", "last_updated"])
+        worksheet.append_row([total_cows, datetime.now().isoformat()])
         return True
     except Exception as e:
         st.error(f"Failed to save system config: {e}")
@@ -329,6 +422,12 @@ def show_supervisor_dashboard():
         <p>Manage workers, assign cows, and monitor production</p>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Connection status
+    if st.session_state.gsheets_conn:
+        st.success("✅ Connected to Google Sheets")
+    else:
+        st.error("❌ Google Sheets connection failed - data will be stored locally only")
     
     # Logout button
     if st.button("🚪 Logout", key="supervisor_logout"):
@@ -555,6 +654,12 @@ def show_worker_dashboard():
     </div>
     """, unsafe_allow_html=True)
     
+    # Connection status
+    if st.session_state.gsheets_conn:
+        st.success("✅ Connected to Google Sheets")
+    else:
+        st.error("❌ Google Sheets connection failed - data will be stored locally only")
+    
     # Logout button
     if st.button("🚪 Logout", key="worker_logout"):
         st.session_state.role = None
@@ -641,32 +746,26 @@ def show_worker_dashboard():
             df = pd.DataFrame(st.session_state.milk_data)
             worker_records = df[df['worker'] == worker_name]
             
+# Add this to complete your code after the last line "worker_records = df[df['worker'] == worker_name]"
+
             if not worker_records.empty:
-                # Worker's summary
-                col1, col2, col3, col4 = st.columns(4)
+                # Summary metrics for worker
+                col1, col2, col3 = st.columns(3)
                 
                 with col1:
                     st.metric("Total Milk Logged", f"{worker_records['milk_liters'].sum():.1f}L")
                 with col2:
                     st.metric("Average per Session", f"{worker_records['milk_liters'].mean():.1f}L")
                 with col3:
-                    st.metric("Total Sessions", len(worker_records))
-                with col4:
-                    st.metric("Cows Milked", worker_records['cow_number'].nunique())
+                    st.metric("Sessions Logged", len(worker_records))
                 
                 # Recent records
-                st.subheader("Recent Records")
+                st.markdown("#### Recent Records")
                 recent_records = worker_records.sort_values('timestamp', ascending=False).head(10)
-                display_cols = ['date', 'time', 'cow_number', 'milk_liters', 'notes']
-                st.dataframe(recent_records[display_cols], use_container_width=True)
-                
-                # Production trend
-                daily_production = worker_records.groupby('date')['milk_liters'].sum().reset_index()
-                if len(daily_production) > 1:
-                    st.markdown("#### Your Daily Production Trend")
-                    daily_production['date'] = pd.to_datetime(daily_production['date'])
-                    daily_production = daily_production.sort_values('date')
-                    st.line_chart(daily_production.set_index('date')['milk_liters'])
+                st.dataframe(
+                    recent_records[['date', 'time', 'cow_number', 'milk_liters', 'notes']], 
+                    use_container_width=True
+                )
             else:
                 st.info("No records found. Start logging milk production!")
         else:
@@ -679,45 +778,51 @@ def show_worker_dashboard():
             df = pd.DataFrame(st.session_state.milk_data)
             worker_records = df[df['worker'] == worker_name]
             
-            # Show status for each assigned cow
-            for cow in sorted(assigned_cows):
-                cow_data = worker_records[worker_records['cow_number'] == cow]
+            if not worker_records.empty:
+                # Performance by cow
+                cow_performance = worker_records.groupby('cow_number')['milk_liters'].agg(['sum', 'mean', 'count']).round(2)
+                cow_performance.columns = ['Total (L)', 'Average (L)', 'Sessions']
+                cow_performance = cow_performance.sort_values('Total (L)', ascending=False)
                 
-                with st.expander(f"Cow #{cow}"):
-                    if not cow_data.empty:
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.metric("Total Milk", f"{cow_data['milk_liters'].sum():.1f}L")
-                        with col2:
-                            st.metric("Sessions", len(cow_data))
-                        with col3:
-                            last_milked = cow_data['date'].max()
-                            st.metric("Last Milked", last_milked)
-                        
-                        # Recent records for this cow
-                        recent_cow_records = cow_data.sort_values('timestamp', ascending=False).head(5)
-                        st.dataframe(recent_cow_records[['date', 'time', 'milk_liters', 'notes']], 
-                                   use_container_width=True)
-                    else:
-                        st.info("No records for this cow yet")
+                st.markdown("#### Your Cows' Performance")
+                st.dataframe(cow_performance, use_container_width=True)
+                
+                # Show which assigned cows haven't been milked recently
+                recent_date = pd.Timestamp.now() - pd.Timedelta(days=1)
+                worker_records['date'] = pd.to_datetime(worker_records['date'])
+                recently_milked = worker_records[worker_records['date'] >= recent_date]['cow_number'].unique()
+                not_milked = [cow for cow in assigned_cows if cow not in recently_milked]
+                
+                if not_milked:
+                    st.warning(f"⚠️ Cows not milked in last 24 hours: {', '.join([f'#{cow}' for cow in not_milked])}")
+                else:
+                    st.success("✅ All assigned cows have been milked recently")
+            else:
+                st.info("No milking records yet to show cow status")
         else:
-            st.info("No production data available")
+            st.info("No data available")
 
-# Main app logic
+# Main Application Flow
 def main():
     # Check password first
     if not check_password():
         return
     
+    # Show role selection if no role is selected
     if st.session_state.role is None:
         show_role_selection()
-    elif st.session_state.role == "worker" and st.session_state.current_user is None:
-        show_worker_selection()
+    
+    # Handle supervisor role
     elif st.session_state.role == "supervisor":
         show_supervisor_dashboard()
-    elif st.session_state.role == "worker" and st.session_state.current_user:
-        show_worker_dashboard()
+    
+    # Handle worker role
+    elif st.session_state.role == "worker":
+        if st.session_state.current_user is None:
+            show_worker_selection()
+        else:
+            show_worker_dashboard()
 
+# Run the application
 if __name__ == "__main__":
     main()
