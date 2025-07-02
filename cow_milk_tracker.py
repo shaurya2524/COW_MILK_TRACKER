@@ -718,6 +718,8 @@ def show_supervisor_dashboard():
                     st.rerun()
 
 # Worker Dashboard
+# Updated Worker Dashboard Function - Replace your show_worker_dashboard() function with this:
+
 def show_worker_dashboard():
     worker_name = st.session_state.current_user
     
@@ -747,6 +749,24 @@ def show_worker_dashboard():
         st.warning("⚠️ No cows assigned to you yet. Please contact your supervisor.")
         return
     
+    # Auto-detect time session and date
+    current_time = datetime.now()
+    current_hour = current_time.hour
+    
+    # Determine session and date
+    if 5 <= current_hour < 12:  # 5 AM to 12 PM
+        session = "Morning"
+        session_date = current_time.date()
+        session_icon = "🌅"
+    elif 12 <= current_hour < 23:  # 6 PM to 11 PM
+        session = "Evening"
+        session_date = current_time.date()
+        session_icon = "🌆"
+
+    
+    # Show current session info
+    st.info(f"{session_icon} **Current Session:** {session} | **Date:** {session_date}")
+    
     # Show assigned cows
     st.subheader(f"Your Assigned Cows ({len(assigned_cows)} cows)")
     assigned_cows_str = ", ".join([f"#{cow}" for cow in sorted(assigned_cows)])
@@ -758,60 +778,136 @@ def show_worker_dashboard():
     with tab1:
         st.subheader("Log Milk Production")
         
-        col1, col2 = st.columns(2)
+        # Initialize session state for selected cow if not exists
+        if 'selected_cow_for_logging' not in st.session_state:
+            st.session_state.selected_cow_for_logging = None
         
-        with col1:
-            cow_number = st.selectbox(
-                "Select Cow Number",
-                sorted(assigned_cows),
-                format_func=lambda x: f"Cow #{x}",
-                help="You can only log milk for your assigned cows"
-            )
-            
-            milk_amount = st.number_input(
-                "Milk Amount (Liters)",
-                min_value=0.0,
-                max_value=100.0,
-                value=0.0,
-                step=0.1,
-                format="%.1f"
-            )
+        # Create cow selection buttons
+        st.markdown("#### Select Cow to Log Milk")
         
-        with col2:
-            milking_date = st.date_input("Date", value=date.today())
-            
-            milking_time = st.selectbox(
-                "Milking Session",
-                ["Morning", "Evening"]
-            )
-            
-            notes = st.text_area(
-                "Notes (Optional)",
-                placeholder="Any observations about the cow or milk quality...",
-                height=100
-            )
+        # Arrange cows in rows of 5 buttons each
+        cows_per_row = 5
+        sorted_cows = sorted(assigned_cows)
         
-        if st.button("🥛 Log Milk Production", type="primary", use_container_width=True):
-            if milk_amount > 0:
-                new_record = {
-                    'date': str(milking_date),
-                    'time': milking_time,
-                    'cow_number': cow_number,
-                    'milk_liters': milk_amount,
-                    'worker': worker_name,
-                    'notes': notes,
-                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
+        for i in range(0, len(sorted_cows), cows_per_row):
+            cols = st.columns(cows_per_row)
+            for j, cow in enumerate(sorted_cows[i:i+cows_per_row]):
+                with cols[j]:
+                    # Check if this cow was already milked today for this session
+                    already_milked = False
+                    if st.session_state.milk_data:
+                        df = pd.DataFrame(st.session_state.milk_data)
+                        today_records = df[
+                            (df['date'] == str(session_date)) & 
+                            (df['time'] == session) & 
+                            (df['cow_number'] == cow) & 
+                            (df['worker'] == worker_name)
+                        ]
+                        already_milked = not today_records.empty
+                    
+                    # Button styling based on status
+                    button_type = "secondary" if already_milked else "primary"
+                    button_label = f"🐄 #{cow}" + (" ✅" if already_milked else "")
+                    
+                    if st.button(button_label, key=f"cow_btn_{cow}", type=button_type, use_container_width=True):
+                        st.session_state.selected_cow_for_logging = cow
+        
+        # Show milk logging form if a cow is selected
+        if st.session_state.selected_cow_for_logging:
+            selected_cow = st.session_state.selected_cow_for_logging
+            
+            st.markdown("---")
+            st.markdown(f"### 🐄 Logging Milk for Cow #{selected_cow}")
+            
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                # Check if already logged for this session
+                already_logged = False
+                existing_amount = 0
+                if st.session_state.milk_data:
+                    df = pd.DataFrame(st.session_state.milk_data)
+                    existing_records = df[
+                        (df['date'] == str(session_date)) & 
+                        (df['time'] == session) & 
+                        (df['cow_number'] == selected_cow) & 
+                        (df['worker'] == worker_name)
+                    ]
+                    if not existing_records.empty:
+                        already_logged = True
+                        existing_amount = existing_records.iloc[-1]['milk_liters']
                 
-                st.session_state.milk_data.append(new_record)
-                # Save to Google Sheets
-                if auto_save_milk_data():
-                    st.success(f"✅ Successfully logged {milk_amount}L from Cow #{cow_number}")
-                    st.balloons()
-                else:
-                    st.error("Failed to save to Google Sheets, but data saved locally")
-            else:
-                st.error("Please enter a milk amount greater than 0")
+                if already_logged:
+                    st.warning(f"⚠️ You already logged {existing_amount}L for Cow #{selected_cow} in {session} session on {session_date}")
+                    st.info("You can log additional milk if needed (e.g., second milking)")
+                
+                milk_amount = st.number_input(
+                    "Milk Amount (Liters)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=0.0,
+                    step=0.1,
+                    format="%.1f",
+                    key=f"milk_amount_{selected_cow}"
+                )
+                
+                notes = st.text_area(
+                    "Notes (Optional)",
+                    placeholder="Any observations about the cow or milk quality...",
+                    height=80,
+                    key=f"notes_{selected_cow}"
+                )
+            
+            with col2:
+                st.markdown("**Session Details:**")
+                st.write(f"🗓️ **Date:** {session_date}")
+                st.write(f"⏰ **Session:** {session} {session_icon}")
+                st.write(f"🐄 **Cow:** #{selected_cow}")
+                st.write(f"👨‍🌾 **Worker:** {worker_name}")
+                
+                # Option to manually adjust date if needed
+                if st.checkbox("Adjust Date", help="Only check if you need to log for a different date"):
+                    manual_date = st.date_input("Select Date", value=session_date, key=f"manual_date_{selected_cow}")
+                    session_date = manual_date
+            
+            # Action buttons
+            col_log, col_clear = st.columns(2)
+            
+            with col_log:
+                if st.button("🥛 Log Milk Production", 
+                           type="primary", 
+                           use_container_width=True,
+                           key=f"log_btn_{selected_cow}"):
+                    if milk_amount > 0:
+                        new_record = {
+                            'date': str(session_date),
+                            'time': session,
+                            'cow_number': selected_cow,
+                            'milk_liters': milk_amount,
+                            'worker': worker_name,
+                            'notes': notes,
+                            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        }
+                        
+                        st.session_state.milk_data.append(new_record)
+                        # Save to Google Sheets
+                        if auto_save_milk_data():
+                            st.success(f"✅ Successfully logged {milk_amount}L from Cow #{selected_cow}")
+                            st.balloons()
+                            # Clear the selected cow to go back to selection
+                            st.session_state.selected_cow_for_logging = None
+                            st.rerun()
+                        else:
+                            st.error("Failed to save to Google Sheets, but data saved locally")
+                    else:
+                        st.error("Please enter a milk amount greater than 0")
+            
+            with col_clear:
+                if st.button("🔄 Select Different Cow", 
+                           use_container_width=True,
+                           key=f"clear_btn_{selected_cow}"):
+                    st.session_state.selected_cow_for_logging = None
+                    st.rerun()
     
     with tab2:
         st.subheader("My Production Records")
@@ -820,8 +916,6 @@ def show_worker_dashboard():
             df = pd.DataFrame(st.session_state.milk_data)
             worker_records = df[df['worker'] == worker_name]
             
-# Add this to complete your code after the last line "worker_records = df[df['worker'] == worker_name]"
-
             if not worker_records.empty:
                 # Summary metrics for worker
                 col1, col2, col3 = st.columns(3)
@@ -833,9 +927,21 @@ def show_worker_dashboard():
                 with col3:
                     st.metric("Sessions Logged", len(worker_records))
                 
+                # Today's summary
+                today_records = worker_records[worker_records['date'] == str(date.today())]
+                if not today_records.empty:
+                    st.markdown("#### Today's Summary")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Today's Total", f"{today_records['milk_liters'].sum():.1f}L")
+                    with col2:
+                        st.metric("Cows Milked Today", today_records['cow_number'].nunique())
+                    with col3:
+                        st.metric("Today's Sessions", len(today_records))
+                
                 # Recent records
                 st.markdown("#### Recent Records")
-                recent_records = worker_records.sort_values('timestamp', ascending=False).head(10)
+                recent_records = worker_records.sort_values('timestamp', ascending=False).head(15)
                 st.dataframe(
                     recent_records[['date', 'time', 'cow_number', 'milk_liters', 'notes']], 
                     use_container_width=True
@@ -861,16 +967,33 @@ def show_worker_dashboard():
                 st.markdown("#### Your Cows' Performance")
                 st.dataframe(cow_performance, use_container_width=True)
                 
-                # Show which assigned cows haven't been milked recently
-                recent_date = pd.Timestamp.now() - pd.Timedelta(days=1)
+                # Today's milking status
+                st.markdown("#### Today's Milking Status")
+                today_records = worker_records[worker_records['date'] == str(date.today())]
+                
+                if not today_records.empty:
+                    today_milked = today_records['cow_number'].unique()
+                    not_milked_today = [cow for cow in assigned_cows if cow not in today_milked]
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.success(f"✅ **Milked Today:** {', '.join([f'#{cow}' for cow in sorted(today_milked)])}")
+                    with col2:
+                        if not_milked_today:
+                            st.warning(f"⏳ **Pending:** {', '.join([f'#{cow}' for cow in sorted(not_milked_today)])}")
+                        else:
+                            st.success("🎉 All cows milked today!")
+                else:
+                    st.info("No milking records for today yet")
+                
+                # Show which assigned cows haven't been milked recently (last 2 days)
+                recent_date = pd.Timestamp.now() - pd.Timedelta(days=2)
                 worker_records['date'] = pd.to_datetime(worker_records['date'])
                 recently_milked = worker_records[worker_records['date'] >= recent_date]['cow_number'].unique()
-                not_milked = [cow for cow in assigned_cows if cow not in recently_milked]
+                not_milked_recently = [cow for cow in assigned_cows if cow not in recently_milked]
                 
-                if not_milked:
-                    st.warning(f"⚠️ Cows not milked in last 24 hours: {', '.join([f'#{cow}' for cow in not_milked])}")
-                else:
-                    st.success("✅ All assigned cows have been milked recently")
+                if not_milked_recently:
+                    st.error(f"🚨 **Not milked in 2+ days:** {', '.join([f'#{cow}' for cow in not_milked_recently])}")
             else:
                 st.info("No milking records yet to show cow status")
         else:
