@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
+from streamlit_gsheets import GSheetsConnection
 
 # Configure page
 st.set_page_config(
@@ -9,6 +10,113 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# Google Sheets Integration Functions
+@st.cache_resource
+def initialize_gsheets_connection():
+    """Initialize Google Sheets connection"""
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        return conn
+    except Exception as e:
+        st.error(f"Failed to connect to Google Sheets: {e}")
+        return None
+
+def load_workers_from_sheets(conn):
+    """Load workers from Google Sheets"""
+    try:
+        df = conn.read(worksheet="workers", ttl=0)
+        if df.empty or 'name' not in df.columns:
+            return ["John Doe", "Mary Smith", "David Johnson", "Sarah Wilson"]
+        return df['name'].dropna().tolist()
+    except:
+        return ["John Doe", "Mary Smith", "David Johnson", "Sarah Wilson"]
+
+def save_workers_to_sheets(conn, workers):
+    """Save workers to Google Sheets"""
+    try:
+        df = pd.DataFrame({'name': workers})
+        conn.update(worksheet="workers", data=df)
+        return True
+    except Exception as e:
+        st.error(f"Failed to save workers: {e}")
+        return False
+
+def load_cow_assignments_from_sheets(conn):
+    """Load cow assignments from Google Sheets"""
+    try:
+        df = conn.read(worksheet="cow_assignments", ttl=0)
+        if df.empty or 'cow_number' not in df.columns:
+            return {}
+        df = df.dropna()
+        return dict(zip(df['cow_number'].astype(int), df['worker_name']))
+    except:
+        return {}
+
+def save_cow_assignments_to_sheets(conn, assignments):
+    """Save cow assignments to Google Sheets"""
+    try:
+        if assignments:
+            df = pd.DataFrame([
+                {'cow_number': cow, 'worker_name': worker}
+                for cow, worker in assignments.items()
+            ])
+        else:
+            df = pd.DataFrame(columns=['cow_number', 'worker_name'])
+        
+        conn.update(worksheet="cow_assignments", data=df)
+        return True
+    except Exception as e:
+        st.error(f"Failed to save cow assignments: {e}")
+        return False
+
+def load_milk_data_from_sheets(conn):
+    """Load milk data from Google Sheets"""
+    try:
+        df = conn.read(worksheet="milk_data", ttl=0)
+        if df.empty:
+            return []
+        df = df.dropna(how='all')
+        return df.to_dict('records')
+    except:
+        return []
+
+def save_milk_data_to_sheets(conn, milk_data):
+    """Save all milk data to Google Sheets"""
+    try:
+        if milk_data:
+            df = pd.DataFrame(milk_data)
+        else:
+            df = pd.DataFrame(columns=['date', 'time', 'cow_number', 'milk_liters', 'worker', 'notes', 'timestamp'])
+        
+        conn.update(worksheet="milk_data", data=df)
+        return True
+    except Exception as e:
+        st.error(f"Failed to save milk data: {e}")
+        return False
+
+def load_system_config_from_sheets(conn):
+    """Load system config from Google Sheets"""
+    try:
+        df = conn.read(worksheet="system_config", ttl=0)
+        if df.empty or 'total_cows' not in df.columns:
+            return 50
+        return int(df['total_cows'].iloc[0])
+    except:
+        return 50
+
+def save_system_config_to_sheets(conn, total_cows):
+    """Save system config to Google Sheets"""
+    try:
+        df = pd.DataFrame({
+            'total_cows': [total_cows],
+            'last_updated': [datetime.now().isoformat()]
+        })
+        conn.update(worksheet="system_config", data=df)
+        return True
+    except Exception as e:
+        st.error(f"Failed to save system config: {e}")
+        return False
 
 # Password protection system
 def check_password():
@@ -53,22 +161,59 @@ def check_password():
     
     return False
 
-# Initialize session state
+# Initialize session state with Google Sheets
 def initialize_session_state():
     if 'role' not in st.session_state:
         st.session_state.role = None
     if 'current_user' not in st.session_state:
         st.session_state.current_user = None
-    if 'workers' not in st.session_state:
-        st.session_state.workers = ["John Doe", "Mary Smith", "David Johnson", "Sarah Wilson"]
-    if 'cow_assignments' not in st.session_state:
-        st.session_state.cow_assignments = {}
-    if 'milk_data' not in st.session_state:
-        st.session_state.milk_data = []
-    if 'cows' not in st.session_state:
-        st.session_state.cows = list(range(1, 51))  # Default 50 cows
+    if 'gsheets_conn' not in st.session_state:
+        st.session_state.gsheets_conn = initialize_gsheets_connection()
+    
+    if st.session_state.gsheets_conn:
+        # Load data from Google Sheets
+        if 'workers' not in st.session_state:
+            st.session_state.workers = load_workers_from_sheets(st.session_state.gsheets_conn)
+        if 'cow_assignments' not in st.session_state:
+            st.session_state.cow_assignments = load_cow_assignments_from_sheets(st.session_state.gsheets_conn)
+        if 'milk_data' not in st.session_state:
+            st.session_state.milk_data = load_milk_data_from_sheets(st.session_state.gsheets_conn)
+        if 'cows' not in st.session_state:
+            total_cows = load_system_config_from_sheets(st.session_state.gsheets_conn)
+            st.session_state.cows = list(range(1, total_cows + 1))
+    else:
+        # Fallback to default values if connection fails
+        if 'workers' not in st.session_state:
+            st.session_state.workers = ["John Doe", "Mary Smith", "David Johnson", "Sarah Wilson"]
+        if 'cow_assignments' not in st.session_state:
+            st.session_state.cow_assignments = {}
+        if 'milk_data' not in st.session_state:
+            st.session_state.milk_data = []
+        if 'cows' not in st.session_state:
+            st.session_state.cows = list(range(1, 51))
 
 initialize_session_state()
+
+# Auto-save functions
+def auto_save_workers():
+    if st.session_state.gsheets_conn:
+        return save_workers_to_sheets(st.session_state.gsheets_conn, st.session_state.workers)
+    return False
+
+def auto_save_cow_assignments():
+    if st.session_state.gsheets_conn:
+        return save_cow_assignments_to_sheets(st.session_state.gsheets_conn, st.session_state.cow_assignments)
+    return False
+
+def auto_save_milk_data():
+    if st.session_state.gsheets_conn:
+        return save_milk_data_to_sheets(st.session_state.gsheets_conn, st.session_state.milk_data)
+    return False
+
+def auto_save_system_config():
+    if st.session_state.gsheets_conn:
+        return save_system_config_to_sheets(st.session_state.gsheets_conn, len(st.session_state.cows))
+    return False
 
 # Custom CSS
 st.markdown("""
@@ -208,6 +353,9 @@ def show_supervisor_dashboard():
                         st.session_state.workers.remove(worker)
                         # Remove cow assignments for this worker
                         st.session_state.cow_assignments = {k: v for k, v in st.session_state.cow_assignments.items() if v != worker}
+                        # Save to Google Sheets
+                        if auto_save_workers() and auto_save_cow_assignments():
+                            st.success(f"Removed {worker} successfully")
                         st.rerun()
         
         with col2:
@@ -216,7 +364,11 @@ def show_supervisor_dashboard():
             if st.button("Add Worker") and new_worker_name:
                 if new_worker_name not in st.session_state.workers:
                     st.session_state.workers.append(new_worker_name)
-                    st.success(f"Added {new_worker_name} as a worker")
+                    # Save to Google Sheets
+                    if auto_save_workers():
+                        st.success(f"Added {new_worker_name} as a worker")
+                    else:
+                        st.error("Failed to save to Google Sheets")
                     st.rerun()
                 else:
                     st.error("Worker already exists")
@@ -233,7 +385,6 @@ def show_supervisor_dashboard():
             
             # Multi-select for cow numbers
             available_cows = [cow for cow in st.session_state.cows if cow not in st.session_state.cow_assignments]
-            assigned_to_worker = [cow for cow, worker in st.session_state.cow_assignments.items() if worker == selected_worker]
             
             selected_cows = st.multiselect(
                 "Select Cows to Assign",
@@ -244,7 +395,11 @@ def show_supervisor_dashboard():
             if st.button("Assign Cows"):
                 for cow in selected_cows:
                     st.session_state.cow_assignments[cow] = selected_worker
-                st.success(f"Assigned {len(selected_cows)} cows to {selected_worker}")
+                # Save to Google Sheets
+                if auto_save_cow_assignments():
+                    st.success(f"Assigned {len(selected_cows)} cows to {selected_worker}")
+                else:
+                    st.error("Failed to save assignments to Google Sheets")
                 st.rerun()
         
         with col2:
@@ -266,6 +421,8 @@ def show_supervisor_dashboard():
                         # Option to remove all assignments for this worker
                         if st.button(f"Remove all assignments for {worker}", key=f"remove_all_{worker}"):
                             st.session_state.cow_assignments = {k: v for k, v in st.session_state.cow_assignments.items() if v != worker}
+                            if auto_save_cow_assignments():
+                                st.success(f"Removed all assignments for {worker}")
                             st.rerun()
             else:
                 st.info("No cow assignments yet")
@@ -357,7 +514,11 @@ def show_supervisor_dashboard():
                 st.session_state.cows = list(range(1, total_cows + 1))
                 # Remove assignments for cows that no longer exist
                 st.session_state.cow_assignments = {k: v for k, v in st.session_state.cow_assignments.items() if k <= total_cows}
-                st.success(f"Updated to {total_cows} cows")
+                # Save to Google Sheets
+                if auto_save_system_config() and auto_save_cow_assignments():
+                    st.success(f"Updated to {total_cows} cows")
+                else:
+                    st.error("Failed to save changes to Google Sheets")
                 st.rerun()
         
         with col2:
@@ -375,7 +536,10 @@ def show_supervisor_dashboard():
             if st.button("🗑️ Clear All Production Data"):
                 if st.checkbox("Confirm deletion"):
                     st.session_state.milk_data = []
-                    st.success("All production data cleared")
+                    if auto_save_milk_data():
+                        st.success("All production data cleared")
+                    else:
+                        st.error("Failed to clear data from Google Sheets")
                     st.rerun()
 
 # Worker Dashboard
@@ -459,8 +623,12 @@ def show_worker_dashboard():
                 }
                 
                 st.session_state.milk_data.append(new_record)
-                st.success(f"✅ Successfully logged {milk_amount}L from Cow #{cow_number}")
-                st.balloons()
+                # Save to Google Sheets
+                if auto_save_milk_data():
+                    st.success(f"✅ Successfully logged {milk_amount}L from Cow #{cow_number}")
+                    st.balloons()
+                else:
+                    st.error("Failed to save to Google Sheets, but data saved locally")
             else:
                 st.error("Please enter a milk amount greater than 0")
     
