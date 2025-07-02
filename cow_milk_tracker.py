@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
-from streamlit_gsheets import GSheetsConnection
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
 
 # Configure page
 st.set_page_config(
