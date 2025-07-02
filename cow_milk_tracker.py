@@ -15,27 +15,36 @@ st.set_page_config(
 
 # Google Sheets Integration Functions
 @st.cache_resource
+# Replace your initialize_gsheets_connection function with this updated version:
+
+@st.cache_resource
 def initialize_gsheets_connection():
     """Initialize Google Sheets connection using gspread"""
     try:
+        # Check if secrets are available
+        if "connections" not in st.secrets or "gsheet" not in st.secrets["connections"]:
+            st.warning("⚠️ Google Sheets credentials not found. Running in local mode.")
+            return None
+            
         # Define the scope
         scope = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
         ]
         
-        # Get credentials from Streamlit secrets
+        # Get credentials from Streamlit secrets (updated path)
+        gsheet_config = st.secrets["connections"]["gsheet"]
         credentials_dict = {
-            "type": st.secrets["gcp_service_account"]["type"],
-            "project_id": st.secrets["gcp_service_account"]["project_id"],
-            "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
-            "private_key": st.secrets["gcp_service_account"]["private_key"],
-            "client_email": st.secrets["gcp_service_account"]["client_email"],
-            "client_id": st.secrets["gcp_service_account"]["client_id"],
-            "auth_uri": st.secrets["gcp_service_account"]["auth_uri"],
-            "token_uri": st.secrets["gcp_service_account"]["token_uri"],
-            "auth_provider_x509_cert_url": st.secrets["gcp_service_account"]["auth_provider_x509_cert_url"],
-            "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"]
+            "type": gsheet_config["type"],
+            "project_id": gsheet_config["project_id"],
+            "private_key_id": gsheet_config["private_key_id"],
+            "private_key": gsheet_config["private_key"],
+            "client_email": gsheet_config["client_email"],
+            "client_id": gsheet_config["client_id"],
+            "auth_uri": gsheet_config["auth_uri"],
+            "token_uri": gsheet_config["token_uri"],
+            "auth_provider_x509_cert_url": gsheet_config.get("auth_provider_x509_cert_url", "https://www.googleapis.com/oauth2/v1/certs"),
+            "client_x509_cert_url": gsheet_config.get("client_x509_cert_url", f"https://www.googleapis.com/robot/v1/metadata/x509/{gsheet_config['client_email']}")
         }
         
         # Create credentials
@@ -44,13 +53,16 @@ def initialize_gsheets_connection():
         # Authorize and return the client
         gc = gspread.authorize(credentials)
         
-        # Open the spreadsheet (replace with your spreadsheet name or URL)
-        spreadsheet_name = st.secrets.get("spreadsheet_name", "Dairy Farm Management")
-        sheet = gc.open(spreadsheet_name)
+        # Open the spreadsheet using the ID from secrets
+        spreadsheet_id = gsheet_config["spreadsheet"]
+        sheet = gc.open_by_key(spreadsheet_id)
         
+        st.success("✅ Successfully connected to Google Sheets!")
         return sheet
+        
     except Exception as e:
         st.error(f"Failed to connect to Google Sheets: {e}")
+        st.info("💡 The app will continue to work in local mode (data won't be saved to Google Sheets)")
         return None
 
 def get_worksheet(sheet, worksheet_name):
