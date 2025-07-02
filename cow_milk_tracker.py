@@ -224,7 +224,6 @@ def save_system_config_to_sheets(sheet, total_cows):
     except Exception as e:
         st.error(f"Failed to save system config: {e}")
         return False
-
 # Password protection system
 def check_password():
     """Returns True if password is correct, False otherwise"""
@@ -268,6 +267,57 @@ def check_password():
     
     return False
 
+# NEW FUNCTION - Add this after the check_password function
+def check_supervisor_password():
+    """Returns True if supervisor password is correct, False otherwise"""
+    
+    def supervisor_password_entered():
+        if st.session_state["supervisor_password"] == "7441":
+            st.session_state["supervisor_password_correct"] = True
+            del st.session_state["supervisor_password"]  # Clear password from session
+        else:
+            st.session_state["supervisor_password_correct"] = False
+
+    # Check if supervisor password is already verified
+    if st.session_state.get("supervisor_password_correct", False):
+        return True
+    
+    # Show supervisor password input
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%); 
+                padding: 2rem; border-radius: 15px; margin: 2rem 0; 
+                text-align: center; color: white;">
+        <h1>👔 Supervisor Access</h1>
+        <p>Please enter the supervisor password to continue</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.text_input(
+            "Enter Supervisor Password", 
+            type="password", 
+            on_change=supervisor_password_entered, 
+            key="supervisor_password",
+            placeholder="Enter supervisor password",
+            help="Only supervisors have access to this password"
+        )
+        
+        # Show error if password is incorrect
+        if "supervisor_password_correct" in st.session_state and not st.session_state["supervisor_password_correct"]:
+            st.error("❌ Incorrect supervisor password. Please try again.")
+        
+        # Add back button
+        if st.button("← Back to Role Selection", use_container_width=True):
+            st.session_state.role = None
+            st.session_state.current_user = None
+            # Clear supervisor password states
+            if "supervisor_password_correct" in st.session_state:
+                del st.session_state["supervisor_password_correct"]
+            st.rerun()
+    
+    return False
 # Initialize session state with Google Sheets
 def initialize_session_state():
     if 'role' not in st.session_state:
@@ -391,7 +441,6 @@ def show_role_selection():
         with col_sup:
             if st.button("👔 Supervisor", use_container_width=True, type="primary"):
                 st.session_state.role = "supervisor"
-                st.session_state.current_user = "Supervisor"
                 st.rerun()
         
         with col_work:
@@ -826,6 +875,9 @@ def main():
     
     # Handle supervisor role
     elif st.session_state.role == "supervisor":
+        # Check supervisor password before showing dashboard
+        if not check_supervisor_password():
+            return
         show_supervisor_dashboard()
     
     # Handle worker role
