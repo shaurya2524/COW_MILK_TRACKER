@@ -758,12 +758,12 @@ def show_worker_dashboard():
         session = "Morning"
         session_date = current_time.date()
         session_icon = "🌅"
+
     elif 12 <= current_hour < 23:  # 6 PM to 11 PM
         session = "Evening"
         session_date = current_time.date()
         session_icon = "🌆"
 
-    
     # Show current session info
     st.info(f"{session_icon} **Current Session:** {session} | **Date:** {session_date}")
     
@@ -806,10 +806,54 @@ def show_worker_dashboard():
                         already_milked = not today_records.empty
                     
                     # Button styling based on status
-                    button_type = "secondary" if already_milked else "primary"
-                    button_label = f"🐄 #{cow}" + (" ✅" if already_milked else "")
-                    
-                    if st.button(button_label, key=f"cow_btn_{cow}", type=button_type, use_container_width=True):
+                    if already_milked:
+                        # Green styling for logged cows
+                        button_html = f"""
+                        <div style="margin-bottom: 8px;">
+                            <button style="
+                                width: 100%;
+                                padding: 8px;
+                                background-color: #28a745;
+                                color: white;
+                                border: none;
+                                border-radius: 6px;
+                                font-weight: bold;
+                                cursor: pointer;
+                                transition: background-color 0.3s;
+                            " onclick="this.style.backgroundColor='#218838';" 
+                               onmouseover="this.style.backgroundColor='#218838';" 
+                               onmouseout="this.style.backgroundColor='#28a745';">
+                                🐄 #{cow} ✅
+                            </button>
+                        </div>
+                        """
+                        st.markdown(button_html, unsafe_allow_html=True)
+                        # Create invisible button for functionality
+                            st.session_state.selected_cow_for_logging = cow
+                    else:
+                        # Red styling for unlogged cows
+                        button_html = f"""
+                        <div style="margin-bottom: 8px;">
+                            <button style="
+                                width: 100%;
+                                padding: 8px;
+                                background-color: #dc3545;
+                                color: white;
+                                border: none;
+                                border-radius: 6px;
+                                font-weight: bold;
+                                cursor: pointer;
+                                transition: background-color 0.3s;
+                            " onclick="this.style.backgroundColor='#c82333';" 
+                               onmouseover="this.style.backgroundColor='#c82333';" 
+                               onmouseout="this.style.backgroundColor='#dc3545';">
+                                🐄 #{cow} ⏳
+                            </button>
+                        </div>
+                        """
+                        st.markdown(button_html, unsafe_allow_html=True)
+                        # Create invisible button for functionality
+                        if st.button(f"Select Cow #{cow}", key=f"cow_btn_{cow}", label_visibility="hidden"):
                         st.session_state.selected_cow_for_logging = cow
         
         # Show milk logging form if a cow is selected
