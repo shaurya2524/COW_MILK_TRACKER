@@ -829,7 +829,7 @@ def show_worker_dashboard():
                         """
                         st.markdown(button_html, unsafe_allow_html=True)
                         # Create invisible button for functionality
-                            st.session_state.selected_cow_for_logging = cow
+                        st.session_state.selected_cow_for_logging = cow
                     else:
                         # Red styling for unlogged cows
                         button_html = f"""
