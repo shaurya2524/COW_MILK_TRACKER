@@ -268,13 +268,19 @@ def check_password():
     return False
 
 # NEW FUNCTION - Add this after the check_password function
+# Replace your check_supervisor_password function with this corrected version:
+
 def check_supervisor_password():
     """Returns True if supervisor password is correct, False otherwise"""
     
     def supervisor_password_entered():
-        if st.session_state["supervisor_password"] == "7441":
-            st.session_state["supervisor_password_correct"] = True
-            del st.session_state["supervisor_password"]  # Clear password from session
+        # Check if the password field exists and has content
+        if "supervisor_password" in st.session_state and st.session_state["supervisor_password"]:
+            if st.session_state["supervisor_password"] == "7441":
+                st.session_state["supervisor_password_correct"] = True
+                del st.session_state["supervisor_password"]  # Clear password from session
+            else:
+                st.session_state["supervisor_password_correct"] = False
         else:
             st.session_state["supervisor_password_correct"] = False
 
@@ -295,18 +301,23 @@ def check_supervisor_password():
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        st.text_input(
+        # Create the password input
+        supervisor_password = st.text_input(
             "Enter Supervisor Password", 
             type="password", 
-            on_change=supervisor_password_entered, 
-            key="supervisor_password",
+            key="supervisor_password_input",
             placeholder="Enter supervisor password",
             help="Only supervisors have access to this password"
         )
         
-        # Show error if password is incorrect
-        if "supervisor_password_correct" in st.session_state and not st.session_state["supervisor_password_correct"]:
-            st.error("❌ Incorrect supervisor password. Please try again.")
+        # Check password when button is clicked
+        if st.button("Submit Password", use_container_width=True, type="primary"):
+            if supervisor_password == "7441":
+                st.session_state["supervisor_password_correct"] = True
+                st.success("✅ Access granted!")
+                st.rerun()
+            else:
+                st.error("❌ Incorrect supervisor password. Please try again.")
         
         # Add back button
         if st.button("← Back to Role Selection", use_container_width=True):
@@ -315,6 +326,8 @@ def check_supervisor_password():
             # Clear supervisor password states
             if "supervisor_password_correct" in st.session_state:
                 del st.session_state["supervisor_password_correct"]
+            if "supervisor_password_input" in st.session_state:
+                del st.session_state["supervisor_password_input"]
             st.rerun()
     
     return False
