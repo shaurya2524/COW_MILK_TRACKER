@@ -10,6 +10,49 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Password protection system
+def check_password():
+    """Returns True if password is correct, False otherwise"""
+    
+    def password_entered():
+        if st.session_state["password"] == "1687":
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Clear password from session
+        else:
+            st.session_state["password_correct"] = False
+
+    # Check if password is already verified
+    if st.session_state.get("password_correct", False):
+        return True
+    
+    # Show password input
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                padding: 2rem; border-radius: 15px; margin: 2rem 0; 
+                text-align: center; color: white;">
+        <h1>🔒 Dairy Farm Management System</h1>
+        <p>Please enter the access password to continue</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.text_input(
+            "Enter Password", 
+            type="password", 
+            on_change=password_entered, 
+            key="password",
+            placeholder="Enter your access password",
+            help="Contact your administrator if you don't have the password"
+        )
+        
+        # Show error if password is incorrect
+        if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+            st.error("❌ Incorrect password. Please try again.")
+    
+    return False
+
 # Initialize session state
 def initialize_session_state():
     if 'role' not in st.session_state:
@@ -493,6 +536,10 @@ def show_worker_dashboard():
 
 # Main app logic
 def main():
+    # Check password first
+    if not check_password():
+        return
+    
     if st.session_state.role is None:
         show_role_selection()
     elif st.session_state.role == "worker" and st.session_state.current_user is None:
