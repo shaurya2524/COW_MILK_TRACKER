@@ -718,8 +718,7 @@ def show_supervisor_dashboard():
                     st.rerun()
 
 # Worker Dashboard
-# Updated Worker Dashboard Function - Replace your show_worker_dashboard() function with this:
-
+# Enhanced Worker Dashboard Function with Bulk Logging
 def show_worker_dashboard():
     worker_name = st.session_state.current_user
     
@@ -754,16 +753,14 @@ def show_worker_dashboard():
     current_hour = current_time.hour
     
     # Determine session and date
-    if 5 <= current_hour < 12:  # 5 AM to 12 PM
+    if 5 <= current_hour < 12:  
         session = "Morning"
         session_date = current_time.date()
         session_icon = "🌅"
-
-    elif 12 <= current_hour < 23:  # 6 PM to 11 PM
+    elif 12 <= current_hour < 23:  
         session = "Evening"
         session_date = current_time.date()
         session_icon = "🌆"
-
     
     # Show current session info
     st.info(f"{session_icon} **Current Session:** {session} | **Date:** {session_date}")
@@ -774,10 +771,10 @@ def show_worker_dashboard():
     st.info(f"**Assigned Cows:** {assigned_cows_str}")
     
     # Tabs for worker functions
-    tab1, tab2, tab3 = st.tabs(["🥛 Log Milk", "📊 My Records", "🐄 Cow Status"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🥛 Log Milk", "📊 Bulk Entry", "📈 My Records", "🐄 Cow Status"])
     
     with tab1:
-        st.subheader("Log Milk Production")
+        st.subheader("Log Milk Production (Single Cow)")
         
         # Initialize session state for selected cow if not exists
         if 'selected_cow_for_logging' not in st.session_state:
@@ -911,6 +908,145 @@ def show_worker_dashboard():
                     st.rerun()
     
     with tab2:
+        st.subheader("Bulk Milk Entry")
+        st.info("💡 **Tip:** Use this tab to quickly log multiple cows at once!")
+        
+        # Initialize bulk entry session state
+        if 'bulk_entries' not in st.session_state:
+            st.session_state.bulk_entries = {}
+        
+        # Session details for bulk entry
+        col1, col2 = st.columns(2)
+        with col1:
+            bulk_session_date = st.date_input("Entry Date", value=session_date, key="bulk_date")
+        with col2:
+            bulk_session_time = st.selectbox("Session Time", ["Morning", "Evening"], 
+                                           index=0 if session == "Morning" else 1, key="bulk_session")
+        
+        st.markdown("---")
+        st.markdown("### 📝 Enter Milk Amounts for Multiple Cows")
+        
+        # Create a form for bulk entry
+        with st.form("bulk_milk_form"):
+            st.markdown("#### Enter milk amounts (leave empty for cows not milked)")
+            
+            # Create columns for better layout
+            cols_per_row = 4
+            sorted_cows = sorted(assigned_cows)
+            
+            bulk_data = {}
+            notes_data = {}
+            
+            for i in range(0, len(sorted_cows), cols_per_row):
+                cols = st.columns(cols_per_row)
+                
+                for j, cow in enumerate(sorted_cows[i:i+cols_per_row]):
+                    with cols[j]:
+                        # Check if already logged for this session
+                        already_logged = False
+                        existing_amount = 0
+                        if st.session_state.milk_data:
+                            df = pd.DataFrame(st.session_state.milk_data)
+                            existing_records = df[
+                                (df['date'] == str(bulk_session_date)) & 
+                                (df['time'] == bulk_session_time) & 
+                                (df['cow_number'] == cow) & 
+                                (df['worker'] == worker_name)
+                            ]
+                            if not existing_records.empty:
+                                already_logged = True
+                                existing_amount = existing_records.iloc[-1]['milk_liters']
+                        
+                        # Show status
+                        if already_logged:
+                            st.markdown(f"**🐄 Cow #{cow}** ✅")
+                            st.caption(f"Already logged: {existing_amount}L")
+                        else:
+                            st.markdown(f"**🐄 Cow #{cow}**")
+                        
+                        # Milk amount input
+                        milk_amount = st.number_input(
+                            f"Milk (L)",
+                            min_value=0.0,
+                            max_value=100.0,
+                            value=0.0,
+                            step=0.1,
+                            format="%.1f",
+                            key=f"bulk_milk_{cow}",
+                            label_visibility="collapsed"
+                        )
+                        
+                        # Notes input (smaller)
+                        notes = st.text_input(
+                            f"Notes",
+                            placeholder="Notes...",
+                            key=f"bulk_notes_{cow}",
+                            label_visibility="collapsed"
+                        )
+                        
+                        if milk_amount > 0:
+                            bulk_data[cow] = milk_amount
+                            notes_data[cow] = notes
+            
+            # Submit button
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                submitted = st.form_submit_button("🚀 Save All Entries", type="primary", use_container_width=True)
+            
+            if submitted:
+                if bulk_data:
+                    success_count = 0
+                    error_count = 0
+                    
+                    # Process all entries
+                    for cow, milk_amount in bulk_data.items():
+                        try:
+                            new_record = {
+                                'date': str(bulk_session_date),
+                                'time': bulk_session_time,
+                                'cow_number': cow,
+                                'milk_liters': milk_amount,
+                                'worker': worker_name,
+                                'notes': notes_data.get(cow, ''),
+                                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            }
+                            
+                            st.session_state.milk_data.append(new_record)
+                            success_count += 1
+                            
+                        except Exception as e:
+                            error_count += 1
+                            st.error(f"Error logging Cow #{cow}: {str(e)}")
+                    
+                    # Save all to Google Sheets
+                    if auto_save_milk_data():
+                        st.success(f"✅ Successfully logged {success_count} records!")
+                        if error_count > 0:
+                            st.warning(f"⚠️ {error_count} records had errors")
+                        st.balloons()
+                        # Clear the form by rerunning
+                        st.rerun()
+                    else:
+                        st.error("Failed to save to Google Sheets, but data saved locally")
+                else:
+                    st.warning("⚠️ No milk amounts entered. Please enter amounts for cows you want to log.")
+        
+        # Show preview of what will be logged
+        if st.session_state.get('bulk_entries'):
+            st.markdown("### 📋 Preview of Entries")
+            preview_data = []
+            for cow, amount in st.session_state.bulk_entries.items():
+                preview_data.append({
+                    'Cow': f"#{cow}",
+                    'Milk (L)': amount,
+                    'Session': bulk_session_time,
+                    'Date': bulk_session_date
+                })
+            
+            if preview_data:
+                st.dataframe(pd.DataFrame(preview_data), use_container_width=True)
+    
+    with tab3:
         st.subheader("My Production Records")
         
         if st.session_state.milk_data:
@@ -952,7 +1088,7 @@ def show_worker_dashboard():
         else:
             st.info("No production data available yet")
     
-    with tab3:
+    with tab4:
         st.subheader("Cow Status Overview")
         
         if st.session_state.milk_data:
