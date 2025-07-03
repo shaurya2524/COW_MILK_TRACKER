@@ -718,25 +718,25 @@ def show_supervisor_dashboard():
                     st.rerun()
 
 # Worker Dashboard
-# Enhanced Worker Dashboard Function with Bulk Logging
+# Enhanced Worker Dashboard Function with Hindi Translation and Edit Features
 def show_worker_dashboard():
     worker_name = st.session_state.current_user
     
     st.markdown(f"""
     <div class="worker-header">
-        <h1>👨‍🌾 Worker Dashboard</h1>
-        <p>Welcome, {worker_name}!</p>
+        <h1>👨‍🌾 कामगार डैशबोर्ड</h1>
+        <p>नमस्ते, {worker_name}!</p>
     </div>
     """, unsafe_allow_html=True)
     
     # Connection status
     if st.session_state.gsheets_conn:
-        st.success("✅ Connected to Google Sheets")
+        st.success("✅ गूगल शीट्स से जुड़ाव हो गया")
     else:
-        st.error("❌ Google Sheets connection failed - data will be stored locally only")
+        st.error("❌ गूगल शीट्स कनेक्शन फेल - डेटा केवल स्थानीय रूप से सेव होगा")
     
     # Logout button
-    if st.button("🚪 Logout", key="worker_logout"):
+    if st.button("🚪 लॉग आउट", key="worker_logout"):
         st.session_state.role = None
         st.session_state.current_user = None
         st.rerun()
@@ -745,7 +745,7 @@ def show_worker_dashboard():
     assigned_cows = [cow for cow, worker in st.session_state.cow_assignments.items() if worker == worker_name]
     
     if not assigned_cows:
-        st.warning("⚠️ No cows assigned to you yet. Please contact your supervisor.")
+        st.warning("⚠️ अभी तक आपको कोई गाय नहीं दी गई है। कृपया अपने सुपरवाइज़र से संपर्क करें।")
         return
     
     # Auto-detect time session and date
@@ -755,33 +755,66 @@ def show_worker_dashboard():
     # Determine session and date
     if 5 <= current_hour < 12:  
         session = "Morning"
+        session_display = "सुबह"
         session_date = current_time.date()
         session_icon = "🌅"
     elif 12 <= current_hour < 23:  
         session = "Evening"
+        session_display = "शाम"
         session_date = current_time.date()
         session_icon = "🌆"
     
     # Show current session info
-    st.info(f"{session_icon} **Current Session:** {session} | **Date:** {session_date}")
+    st.info(f"{session_icon} **वर्तमान सत्र:** {session_display} | **तारीख:** {session_date}")
     
     # Show assigned cows
-    st.subheader(f"Your Assigned Cows ({len(assigned_cows)} cows)")
+    st.subheader(f"आपकी गायें ({len(assigned_cows)} गायें)")
     assigned_cows_str = ", ".join([f"#{cow}" for cow in sorted(assigned_cows)])
-    st.info(f"**Assigned Cows:** {assigned_cows_str}")
+    st.info(f"**आपकी गायें:** {assigned_cows_str}")
+    
+    # Function to check if cow is already logged
+    def is_cow_logged_today(cow_number, session_name, date_str):
+        if st.session_state.milk_data:
+            df = pd.DataFrame(st.session_state.milk_data)
+            existing_records = df[
+                (df['date'] == str(date_str)) & 
+                (df['time'] == session_name) & 
+                (df['cow_number'] == cow_number) & 
+                (df['worker'] == worker_name)
+            ]
+            return not existing_records.empty, existing_records
+        return False, pd.DataFrame()
+    
+    # Function to get existing record
+    def get_existing_record(cow_number, session_name, date_str):
+        if st.session_state.milk_data:
+            df = pd.DataFrame(st.session_state.milk_data)
+            existing_records = df[
+                (df['date'] == str(date_str)) & 
+                (df['time'] == session_name) & 
+                (df['cow_number'] == cow_number) & 
+                (df['worker'] == worker_name)
+            ]
+            if not existing_records.empty:
+                return existing_records.iloc[-1]
+        return None
     
     # Tabs for worker functions
-    tab1, tab2, tab3, tab4 = st.tabs(["🥛 Log Milk", "📊 Bulk Entry", "📈 My Records", "🐄 Cow Status"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🥛 दूध लॉग करें", "📊 बल्क एंट्री", "📈 मेरे रिकॉर्ड", "🐄 गाय की स्थिति"])
     
     with tab1:
-        st.subheader("Log Milk Production (Single Cow)")
+        st.subheader("दूध उत्पादन लॉग करें (एक गाय)")
         
         # Initialize session state for selected cow if not exists
         if 'selected_cow_for_logging' not in st.session_state:
             st.session_state.selected_cow_for_logging = None
         
+        # Initialize edit mode
+        if 'edit_mode' not in st.session_state:
+            st.session_state.edit_mode = False
+        
         # Create cow selection buttons
-        st.markdown("#### Select Cow to Log Milk")
+        st.markdown("#### दूध लॉग करने के लिए गाय चुनें")
         
         # Arrange cows in rows of 5 buttons each
         cows_per_row = 5
@@ -792,143 +825,248 @@ def show_worker_dashboard():
             for j, cow in enumerate(sorted_cows[i:i+cows_per_row]):
                 with cols[j]:
                     # Check if this cow was already milked today for this session
-                    already_milked = False
-                    if st.session_state.milk_data:
-                        df = pd.DataFrame(st.session_state.milk_data)
-                        today_records = df[
-                            (df['date'] == str(session_date)) & 
-                            (df['time'] == session) & 
-                            (df['cow_number'] == cow) & 
-                            (df['worker'] == worker_name)
-                        ]
-                        already_milked = not today_records.empty
+                    already_logged, existing_records = is_cow_logged_today(cow, session, session_date)
                     
-                    # Button styling based on status
-                    button_type = "secondary" if already_milked else "primary"
-                    button_label = f"🐄 #{cow}" + (" ✅" if already_milked else "")
-                    
-                    if st.button(button_label, key=f"cow_btn_{cow}", type=button_type, use_container_width=True):
-                        st.session_state.selected_cow_for_logging = cow
+                    if already_logged:
+                        existing_amount = existing_records.iloc[-1]['milk_liters']
+                        # Show logged cow with different styling
+                        st.markdown(f"""
+                        <div style="
+                            background-color: #d4edda;
+                            border: 2px solid #28a745;
+                            border-radius: 8px;
+                            padding: 10px;
+                            text-align: center;
+                            margin: 2px;
+                        ">
+                            <strong>🐄 #{cow}</strong><br>
+                            <span style="color: #28a745;">✅ {existing_amount}L</span><br>
+                            <small style="color: #6c757d;">पहले से लॉग</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Edit button for logged cows
+                        if st.button(f"✏️ संपादित करें", key=f"edit_cow_{cow}", use_container_width=True, type="secondary"):
+                            st.session_state.selected_cow_for_logging = cow
+                            st.session_state.edit_mode = True
+                    else:
+                        # Regular button for unlogged cows
+                        button_label = f"🐄 #{cow}"
+                        if st.button(button_label, key=f"cow_btn_{cow}", type="primary", use_container_width=True):
+                            st.session_state.selected_cow_for_logging = cow
+                            st.session_state.edit_mode = False
         
         # Show milk logging form if a cow is selected
         if st.session_state.selected_cow_for_logging:
             selected_cow = st.session_state.selected_cow_for_logging
             
             st.markdown("---")
-            st.markdown(f"### 🐄 Logging Milk for Cow #{selected_cow}")
             
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                # Check if already logged for this session
-                already_logged = False
-                existing_amount = 0
-                if st.session_state.milk_data:
-                    df = pd.DataFrame(st.session_state.milk_data)
-                    existing_records = df[
-                        (df['date'] == str(session_date)) & 
-                        (df['time'] == session) & 
-                        (df['cow_number'] == selected_cow) & 
-                        (df['worker'] == worker_name)
-                    ]
-                    if not existing_records.empty:
-                        already_logged = True
-                        existing_amount = existing_records.iloc[-1]['milk_liters']
+            # Check if we're in edit mode
+            if st.session_state.edit_mode:
+                st.markdown(f"### ✏️ गाय #{selected_cow} का रिकॉर्ड संपादित करें")
+                existing_record = get_existing_record(selected_cow, session, session_date)
                 
-                if already_logged:
-                    st.warning(f"⚠️ You already logged {existing_amount}L for Cow #{selected_cow} in {session} session on {session_date}")
-                    st.info("You can log additional milk if needed (e.g., second milking)")
-                
-                milk_amount = st.number_input(
-                    "Milk Amount (Liters)",
-                    min_value=0.0,
-                    max_value=100.0,
-                    value=0.0,
-                    step=0.1,
-                    format="%.1f",
-                    key=f"milk_amount_{selected_cow}"
-                )
-                
-                notes = st.text_area(
-                    "Notes (Optional)",
-                    placeholder="Any observations about the cow or milk quality...",
-                    height=80,
-                    key=f"notes_{selected_cow}"
-                )
-            
-            with col2:
-                st.markdown("**Session Details:**")
-                st.write(f"🗓️ **Date:** {session_date}")
-                st.write(f"⏰ **Session:** {session} {session_icon}")
-                st.write(f"🐄 **Cow:** #{selected_cow}")
-                st.write(f"👨‍🌾 **Worker:** {worker_name}")
-                
-                # Option to manually adjust date if needed
-                if st.checkbox("Adjust Date", help="Only check if you need to log for a different date"):
-                    manual_date = st.date_input("Select Date", value=session_date, key=f"manual_date_{selected_cow}")
-                    session_date = manual_date
-            
-            # Action buttons
-            col_log, col_clear = st.columns(2)
-            
-            with col_log:
-                if st.button("🥛 Log Milk Production", 
-                           type="primary", 
-                           use_container_width=True,
-                           key=f"log_btn_{selected_cow}"):
-                    if milk_amount > 0:
-                        new_record = {
-                            'date': str(session_date),
-                            'time': session,
-                            'cow_number': selected_cow,
-                            'milk_liters': milk_amount,
-                            'worker': worker_name,
-                            'notes': notes,
-                            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        }
+                if existing_record is not None:
+                    col1, col2 = st.columns([2, 1])
+                    
+                    with col1:
+                        st.info(f"📝 **मौजूदा रिकॉर्ड:** {existing_record['milk_liters']}L")
                         
-                        st.session_state.milk_data.append(new_record)
-                        # Save to Google Sheets
-                        if auto_save_milk_data():
-                            st.success(f"✅ Successfully logged {milk_amount}L from Cow #{selected_cow}")
-                            st.balloons()
-                            # Clear the selected cow to go back to selection
+                        # Pre-fill with existing values
+                        new_milk_amount = st.number_input(
+                            "नई दूध मात्रा (लीटर)",
+                            min_value=0.0,
+                            max_value=100.0,
+                            value=float(existing_record['milk_liters']),
+                            step=0.1,
+                            format="%.1f",
+                            key=f"edit_milk_amount_{selected_cow}",
+                            help="नई मात्रा दर्ज करें"
+                        )
+                        
+                        new_notes = st.text_area(
+                            "नोट्स (वैकल्पिक)",
+                            value=existing_record.get('notes', ''),
+                            placeholder="गाय या दूध की गुणवत्ता के बारे में कोई टिप्पणी...",
+                            height=80,
+                            key=f"edit_notes_{selected_cow}"
+                        )
+                    
+                    with col2:
+                        st.markdown("**सत्र विवरण:**")
+                        st.write(f"🗓️ **तारीख:** {session_date}")
+                        st.write(f"⏰ **सत्र:** {session_display} {session_icon}")
+                        st.write(f"🐄 **गाय:** #{selected_cow}")
+                        st.write(f"👨‍🌾 **कामगार:** {worker_name}")
+                        
+                        st.markdown("**पुराना रिकॉर्ड:**")
+                        st.write(f"📊 **पुरानी मात्रा:** {existing_record['milk_liters']}L")
+                        st.write(f"🕐 **समय:** {existing_record['timestamp']}")
+                    
+                    # Action buttons for editing
+                    col_update, col_delete, col_cancel = st.columns(3)
+                    
+                    with col_update:
+                        if st.button("✅ अपडेट करें", 
+                                   type="primary", 
+                                   use_container_width=True,
+                                   key=f"update_btn_{selected_cow}"):
+                            if new_milk_amount >= 0:
+                                # Find and update the existing record
+                                for i, record in enumerate(st.session_state.milk_data):
+                                    if (record['date'] == str(session_date) and 
+                                        record['time'] == session and 
+                                        record['cow_number'] == selected_cow and 
+                                        record['worker'] == worker_name):
+                                        
+                                        # Update the record
+                                        st.session_state.milk_data[i]['milk_liters'] = new_milk_amount
+                                        st.session_state.milk_data[i]['notes'] = new_notes
+                                        st.session_state.milk_data[i]['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                        break
+                                
+                                # Save to Google Sheets
+                                if auto_save_milk_data():
+                                    st.success(f"✅ गाय #{selected_cow} का रिकॉर्ड सफलतापूर्वक अपडेट किया गया")
+                                    st.balloons()
+                                    # Clear the selected cow
+                                    st.session_state.selected_cow_for_logging = None
+                                    st.session_state.edit_mode = False
+                                    st.rerun()
+                                else:
+                                    st.error("गूगल शीट्स में सेव नहीं हो सका, लेकिन स्थानीय रूप से सेव हो गया")
+                            else:
+                                st.error("कृपया 0 से अधिक दूध मात्रा दर्ज करें")
+                    
+                    with col_delete:
+                        if st.button("🗑️ डिलीट करें", 
+                                   type="secondary", 
+                                   use_container_width=True,
+                                   key=f"delete_btn_{selected_cow}"):
+                            # Show confirmation
+                            if st.checkbox("पुष्टि करें", key=f"confirm_delete_{selected_cow}"):
+                                # Remove the record
+                                st.session_state.milk_data = [
+                                    record for record in st.session_state.milk_data 
+                                    if not (record['date'] == str(session_date) and 
+                                           record['time'] == session and 
+                                           record['cow_number'] == selected_cow and 
+                                           record['worker'] == worker_name)
+                                ]
+                                
+                                # Save to Google Sheets
+                                if auto_save_milk_data():
+                                    st.success(f"✅ गाय #{selected_cow} का रिकॉर्ड डिलीट कर दिया गया")
+                                    # Clear the selected cow
+                                    st.session_state.selected_cow_for_logging = None
+                                    st.session_state.edit_mode = False
+                                    st.rerun()
+                                else:
+                                    st.error("गूगल शीट्स में सेव नहीं हो सका")
+                    
+                    with col_cancel:
+                        if st.button("❌ रद्द करें", 
+                                   use_container_width=True,
+                                   key=f"cancel_edit_btn_{selected_cow}"):
                             st.session_state.selected_cow_for_logging = None
+                            st.session_state.edit_mode = False
                             st.rerun()
-                        else:
-                            st.error("Failed to save to Google Sheets, but data saved locally")
-                    else:
-                        st.error("Please enter a milk amount greater than 0")
             
-            with col_clear:
-                if st.button("🔄 Select Different Cow", 
-                           use_container_width=True,
-                           key=f"clear_btn_{selected_cow}"):
-                    st.session_state.selected_cow_for_logging = None
-                    st.rerun()
+            else:
+                # Regular logging mode for unlogged cows
+                st.markdown(f"### 🐄 गाय #{selected_cow} के लिए दूध लॉग करें")
+                
+                col1, col2 = st.columns([2, 1])
+                
+                with col1:
+                    milk_amount = st.number_input(
+                        "दूध मात्रा (लीटर)",
+                        min_value=0.0,
+                        max_value=100.0,
+                        value=0.0,
+                        step=0.1,
+                        format="%.1f",
+                        key=f"milk_amount_{selected_cow}"
+                    )
+                    
+                    notes = st.text_area(
+                        "नोट्स (वैकल्पिक)",
+                        placeholder="गाय या दूध की गुणवत्ता के बारे में कोई टिप्पणी...",
+                        height=80,
+                        key=f"notes_{selected_cow}"
+                    )
+                
+                with col2:
+                    st.markdown("**सत्र विवरण:**")
+                    st.write(f"🗓️ **तारीख:** {session_date}")
+                    st.write(f"⏰ **सत्र:** {session_display} {session_icon}")
+                    st.write(f"🐄 **गाय:** #{selected_cow}")
+                    st.write(f"👨‍🌾 **कामगार:** {worker_name}")
+                    
+                    # Option to manually adjust date if needed
+                    if st.checkbox("तारीख बदलें", help="केवल अगर आपको किसी और तारीख के लिए लॉग करना हो"):
+                        manual_date = st.date_input("तारीख चुनें", value=session_date, key=f"manual_date_{selected_cow}")
+                        session_date = manual_date
+                
+                # Action buttons
+                col_log, col_clear = st.columns(2)
+                
+                with col_log:
+                    if st.button("🥛 दूध उत्पादन लॉग करें", 
+                               type="primary", 
+                               use_container_width=True,
+                               key=f"log_btn_{selected_cow}"):
+                        if milk_amount > 0:
+                            new_record = {
+                                'date': str(session_date),
+                                'time': session,
+                                'cow_number': selected_cow,
+                                'milk_liters': milk_amount,
+                                'worker': worker_name,
+                                'notes': notes,
+                                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            }
+                            
+                            st.session_state.milk_data.append(new_record)
+                            # Save to Google Sheets
+                            if auto_save_milk_data():
+                                st.success(f"✅ गाय #{selected_cow} से {milk_amount}L दूध सफलतापूर्वक लॉग किया गया")
+                                st.balloons()
+                                # Clear the selected cow to go back to selection
+                                st.session_state.selected_cow_for_logging = None
+                                st.rerun()
+                            else:
+                                st.error("गूगल शीट्स में सेव नहीं हो सका, लेकिन स्थानीय रूप से सेव हो गया")
+                        else:
+                            st.error("कृपया 0 से अधिक दूध मात्रा दर्ज करें")
+                
+                with col_clear:
+                    if st.button("🔄 दूसरी गाय चुनें", 
+                               use_container_width=True,
+                               key=f"clear_btn_{selected_cow}"):
+                        st.session_state.selected_cow_for_logging = None
+                        st.rerun()
     
     with tab2:
-        st.subheader("Bulk Milk Entry")
-        st.info("💡 **Tip:** Use this tab to quickly log multiple cows at once!")
-        
-        # Initialize bulk entry session state
-        if 'bulk_entries' not in st.session_state:
-            st.session_state.bulk_entries = {}
+        st.subheader("बल्क दूध एंट्री")
+        st.info("💡 **टिप:** एक साथ कई गायों का दूध लॉग करने के लिए इस टैब का उपयोग करें!")
         
         # Session details for bulk entry
         col1, col2 = st.columns(2)
         with col1:
-            bulk_session_date = st.date_input("Entry Date", value=session_date, key="bulk_date")
+            bulk_session_date = st.date_input("एंट्री तारीख", value=session_date, key="bulk_date")
         with col2:
-            bulk_session_time = st.selectbox("Session Time", ["Morning", "Evening"], 
+            bulk_session_time = st.selectbox("सत्र का समय", ["Morning", "Evening"], 
+                                           format_func=lambda x: "सुबह" if x == "Morning" else "शाम",
                                            index=0 if session == "Morning" else 1, key="bulk_session")
         
         st.markdown("---")
-        st.markdown("### 📝 Enter Milk Amounts for Multiple Cows")
+        st.markdown("### 📝 कई गायों के लिए दूध मात्रा दर्ज करें")
         
         # Create a form for bulk entry
         with st.form("bulk_milk_form"):
-            st.markdown("#### Enter milk amounts (leave empty for cows not milked)")
+            st.markdown("#### दूध मात्रा दर्ज करें (जिन गायों का दूध नहीं निकाला गया उन्हें खाली छोड़ दें)")
             
             # Create columns for better layout
             cols_per_row = 4
@@ -943,55 +1081,44 @@ def show_worker_dashboard():
                 for j, cow in enumerate(sorted_cows[i:i+cols_per_row]):
                     with cols[j]:
                         # Check if already logged for this session
-                        already_logged = False
-                        existing_amount = 0
-                        if st.session_state.milk_data:
-                            df = pd.DataFrame(st.session_state.milk_data)
-                            existing_records = df[
-                                (df['date'] == str(bulk_session_date)) & 
-                                (df['time'] == bulk_session_time) & 
-                                (df['cow_number'] == cow) & 
-                                (df['worker'] == worker_name)
-                            ]
-                            if not existing_records.empty:
-                                already_logged = True
-                                existing_amount = existing_records.iloc[-1]['milk_liters']
+                        already_logged, existing_records = is_cow_logged_today(cow, bulk_session_time, bulk_session_date)
                         
-                        # Show status
                         if already_logged:
-                            st.markdown(f"**🐄 Cow #{cow}** ✅")
-                            st.caption(f"Already logged: {existing_amount}L")
+                            existing_amount = existing_records.iloc[-1]['milk_liters']
+                            st.markdown(f"**🐄 गाय #{cow}** ✅")
+                            st.caption(f"पहले से लॉग: {existing_amount}L")
+                            st.info("पहले से लॉग किया गया")
                         else:
-                            st.markdown(f"**🐄 Cow #{cow}**")
-                        
-                        # Milk amount input
-                        milk_amount = st.number_input(
-                            f"Milk (L)",
-                            min_value=0.0,
-                            max_value=100.0,
-                            value=0.0,
-                            step=0.1,
-                            format="%.1f",
-                            key=f"bulk_milk_{cow}",
-                            label_visibility="collapsed"
-                        )
-                        
-                        # Notes input (smaller)
-                        notes = st.text_input(
-                            f"Notes",
-                            placeholder="Notes...",
-                            key=f"bulk_notes_{cow}",
-                            label_visibility="collapsed"
-                        )
-                        
-                        if milk_amount > 0:
-                            bulk_data[cow] = milk_amount
-                            notes_data[cow] = notes
+                            st.markdown(f"**🐄 गाय #{cow}**")
+                            
+                            # Milk amount input
+                            milk_amount = st.number_input(
+                                f"दूध (L)",
+                                min_value=0.0,
+                                max_value=100.0,
+                                value=0.0,
+                                step=0.1,
+                                format="%.1f",
+                                key=f"bulk_milk_{cow}",
+                                label_visibility="collapsed"
+                            )
+                            
+                            # Notes input (smaller)
+                            notes = st.text_input(
+                                f"नोट्स",
+                                placeholder="नोट्स...",
+                                key=f"bulk_notes_{cow}",
+                                label_visibility="collapsed"
+                            )
+                            
+                            if milk_amount > 0:
+                                bulk_data[cow] = milk_amount
+                                notes_data[cow] = notes
             
             # Submit button
             col1, col2, col3 = st.columns([1, 2, 1])
             with col2:
-                submitted = st.form_submit_button("🚀 Save All Entries", type="primary", use_container_width=True)
+                submitted = st.form_submit_button("🚀 सभी एंट्री सेव करें", type="primary", use_container_width=True)
             
             if submitted:
                 if bulk_data:
@@ -1016,38 +1143,23 @@ def show_worker_dashboard():
                             
                         except Exception as e:
                             error_count += 1
-                            st.error(f"Error logging Cow #{cow}: {str(e)}")
+                            st.error(f"गाय #{cow} को लॉग करने में त्रुटि: {str(e)}")
                     
                     # Save all to Google Sheets
                     if auto_save_milk_data():
-                        st.success(f"✅ Successfully logged {success_count} records!")
+                        st.success(f"✅ सफलतापूर्वक {success_count} रिकॉर्ड लॉग किए गए!")
                         if error_count > 0:
-                            st.warning(f"⚠️ {error_count} records had errors")
+                            st.warning(f"⚠️ {error_count} रिकॉर्ड में त्रुटि हुई")
                         st.balloons()
                         # Clear the form by rerunning
                         st.rerun()
                     else:
-                        st.error("Failed to save to Google Sheets, but data saved locally")
+                        st.error("गूगल शीट्स में सेव नहीं हो सका, लेकिन स्थानीय रूप से सेव हो गया")
                 else:
-                    st.warning("⚠️ No milk amounts entered. Please enter amounts for cows you want to log.")
-        
-        # Show preview of what will be logged
-        if st.session_state.get('bulk_entries'):
-            st.markdown("### 📋 Preview of Entries")
-            preview_data = []
-            for cow, amount in st.session_state.bulk_entries.items():
-                preview_data.append({
-                    'Cow': f"#{cow}",
-                    'Milk (L)': amount,
-                    'Session': bulk_session_time,
-                    'Date': bulk_session_date
-                })
-            
-            if preview_data:
-                st.dataframe(pd.DataFrame(preview_data), use_container_width=True)
+                    st.warning("⚠️ कोई दूध मात्रा दर्ज नहीं की गई। कृपया उन गायों के लिए मात्रा दर्ज करें जिन्हें आप लॉग करना चाहते हैं।")
     
     with tab3:
-        st.subheader("My Production Records")
+        st.subheader("मेरे उत्पादन रिकॉर्ड")
         
         if st.session_state.milk_data:
             df = pd.DataFrame(st.session_state.milk_data)
@@ -1058,38 +1170,49 @@ def show_worker_dashboard():
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
-                    st.metric("Total Milk Logged", f"{worker_records['milk_liters'].sum():.1f}L")
+                    st.metric("कुल दूध लॉग किया गया", f"{worker_records['milk_liters'].sum():.1f}L")
                 with col2:
-                    st.metric("Average per Session", f"{worker_records['milk_liters'].mean():.1f}L")
+                    st.metric("प्रति सत्र औसत", f"{worker_records['milk_liters'].mean():.1f}L")
                 with col3:
-                    st.metric("Sessions Logged", len(worker_records))
+                    st.metric("कुल सत्र लॉग किए गए", len(worker_records))
                 
                 # Today's summary
                 today_records = worker_records[worker_records['date'] == str(date.today())]
                 if not today_records.empty:
-                    st.markdown("#### Today's Summary")
+                    st.markdown("#### आज का सारांश")
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("Today's Total", f"{today_records['milk_liters'].sum():.1f}L")
+                        st.metric("आज का कुल", f"{today_records['milk_liters'].sum():.1f}L")
                     with col2:
-                        st.metric("Cows Milked Today", today_records['cow_number'].nunique())
+                        st.metric("आज दुहीं गईं गायें", today_records['cow_number'].nunique())
                     with col3:
-                        st.metric("Today's Sessions", len(today_records))
+                        st.metric("आज के सत्र", len(today_records))
                 
                 # Recent records
-                st.markdown("#### Recent Records")
+                st.markdown("#### हाल के रिकॉर्ड")
                 recent_records = worker_records.sort_values('timestamp', ascending=False).head(15)
+                
+                # Create a more readable dataframe
+                display_records = recent_records.copy()
+                display_records['time'] = display_records['time'].replace({'Morning': 'सुबह', 'Evening': 'शाम'})
+                
                 st.dataframe(
-                    recent_records[['date', 'time', 'cow_number', 'milk_liters', 'notes']], 
+                    display_records[['date', 'time', 'cow_number', 'milk_liters', 'notes']].rename(columns={
+                        'date': 'तारीख',
+                        'time': 'सत्र',
+                        'cow_number': 'गाय नंबर',
+                        'milk_liters': 'दूध (L)',
+                        'notes': 'नोट्स'
+                    }), 
                     use_container_width=True
                 )
             else:
-                st.info("No records found. Start logging milk production!")
+                st.info("कोई रिकॉर्ड नहीं मिला। दूध उत्पादन लॉग करना शुरू करें!")
         else:
-            st.info("No production data available yet")
+            st.info("अभी तक कोई उत्पादन डेटा उपलब्ध नहीं है")
     
     with tab4:
-        st.subheader("Cow Status Overview")
+        st.subheader("गाय की स्थिति का विवरण")
         
         if st.session_state.milk_data:
             df = pd.DataFrame(st.session_state.milk_data)
@@ -1098,14 +1221,14 @@ def show_worker_dashboard():
             if not worker_records.empty:
                 # Performance by cow
                 cow_performance = worker_records.groupby('cow_number')['milk_liters'].agg(['sum', 'mean', 'count']).round(2)
-                cow_performance.columns = ['Total (L)', 'Average (L)', 'Sessions']
-                cow_performance = cow_performance.sort_values('Total (L)', ascending=False)
+                cow_performance.columns = ['कुल (L)', 'औसत (L)', 'सत्र']
+                cow_performance = cow_performance.sort_values('कुल (L)', ascending=False)
                 
-                st.markdown("#### Your Cows' Performance")
+                st.markdown("#### आपकी गायों का प्रदर्शन")
                 st.dataframe(cow_performance, use_container_width=True)
                 
                 # Today's milking status
-                st.markdown("#### Today's Milking Status")
+                st.markdown("#### आज की दुहाई की स्थिति")
                 today_records = worker_records[worker_records['date'] == str(date.today())]
                 
                 if not today_records.empty:
@@ -1114,14 +1237,14 @@ def show_worker_dashboard():
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.success(f"✅ **Milked Today:** {', '.join([f'#{cow}' for cow in sorted(today_milked)])}")
+                        st.success(f"✅ **आज दुहाई गई:** {', '.join([f'#{cow}' for cow in sorted(today_milked)])}")
                     with col2:
                         if not_milked_today:
-                            st.warning(f"⏳ **Pending:** {', '.join([f'#{cow}' for cow in sorted(not_milked_today)])}")
+                            st.warning(f"⏳ **बाकी:** {', '.join([f'#{cow}' for cow in sorted(not_milked_today)])}")
                         else:
-                            st.success("🎉 All cows milked today!")
+                            st.success("🎉 सभी गायों की आज दुहाई हो गई!")
                 else:
-                    st.info("No milking records for today yet")
+                    st.info("आज अभी तक कोई दुहाई का रिकॉर्ड नहीं है")
                 
                 # Show which assigned cows haven't been milked recently (last 2 days)
                 recent_date = pd.Timestamp.now() - pd.Timedelta(days=2)
@@ -1130,11 +1253,11 @@ def show_worker_dashboard():
                 not_milked_recently = [cow for cow in assigned_cows if cow not in recently_milked]
                 
                 if not_milked_recently:
-                    st.error(f"🚨 **Not milked in 2+ days:** {', '.join([f'#{cow}' for cow in not_milked_recently])}")
+                    st.error(f"🚨 **2+ दिन से दुहाई नहीं हुई:** {', '.join([f'#{cow}' for cow in not_milked_recently])}")
             else:
-                st.info("No milking records yet to show cow status")
+                st.info("गाय की स्थिति दिखाने के लिए अभी तक कोई दुहाई का रिकॉर्ड नहीं है")
         else:
-            st.info("No data available")
+            st.info("कोई डेटा उपलब्ध नहीं है")
 
 # Main Application Flow
 def main():
