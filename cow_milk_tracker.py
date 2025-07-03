@@ -4,6 +4,7 @@ from datetime import datetime, date
 import gspread
 from google.oauth2.service_account import Credentials
 import json
+from datetime import datetime, date, timedelta  # Add timedelta here
 
 # Configure page
 st.set_page_config(
@@ -753,15 +754,21 @@ def show_worker_dashboard():
     current_hour = current_time.hour
     
     # Determine session and date
-    if 5 <= current_hour < 12:  
+    # FIXED CODE:
+    if 4 <= current_hour < 12:  
         session = "Morning"
         session_display = "सुबह"
         session_date = current_time.date()
         session_icon = "🌅"
-    elif 12 <= current_hour < 23:  
+    elif 12 <= current_hour < 24:  # Changed from 23 to 24
         session = "Evening"
         session_display = "शाम"
         session_date = current_time.date()
+        session_icon = "🌆"
+    else:  # Handle midnight to 4 AM case
+        session = "Evening"
+        session_display = "शाम"
+        session_date = (current_time - timedelta(days=1)).date()  # Previous day's evening
         session_icon = "🌆"
     
     # Show current session info
@@ -773,11 +780,14 @@ def show_worker_dashboard():
     st.info(f"**आपकी गायें:** {assigned_cows_str}")
     
     # Function to check if cow is already logged
+# FIXED CODE:
     def is_cow_logged_today(cow_number, session_name, date_str):
         if st.session_state.milk_data:
             df = pd.DataFrame(st.session_state.milk_data)
+            # Convert date_str to string format consistently
+            date_str_formatted = str(date_str) if not isinstance(date_str, str) else date_str
             existing_records = df[
-                (df['date'] == str(date_str)) & 
+                (df['date'].astype(str) == date_str_formatted) & 
                 (df['time'] == session_name) & 
                 (df['cow_number'] == cow_number) & 
                 (df['worker'] == worker_name)
@@ -786,11 +796,14 @@ def show_worker_dashboard():
         return False, pd.DataFrame()
     
     # Function to get existing record
+# FIXED CODE:
     def get_existing_record(cow_number, session_name, date_str):
         if st.session_state.milk_data:
             df = pd.DataFrame(st.session_state.milk_data)
+            # Convert date_str to string format consistently
+            date_str_formatted = str(date_str) if not isinstance(date_str, str) else date_str
             existing_records = df[
-                (df['date'] == str(date_str)) & 
+                (df['date'].astype(str) == date_str_formatted) & 
                 (df['time'] == session_name) & 
                 (df['cow_number'] == cow_number) & 
                 (df['worker'] == worker_name)
@@ -798,7 +811,6 @@ def show_worker_dashboard():
             if not existing_records.empty:
                 return existing_records.iloc[-1]
         return None
-    
     # Tabs for worker functions
 # Tabs for worker functions - Bulk Entry is now the default tab
     tab2, tab1, tab3, tab4 = st.tabs(["📊 बल्क एंट्री", "🥛 दूध लॉग करें", "📈 मेरे रिकॉर्ड", "🐄 गाय की स्थिति"])    
