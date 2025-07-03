@@ -510,8 +510,8 @@ def show_supervisor_dashboard():
         st.rerun()
     
     # Tabs for different supervisor functions
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["👥 Manage Workers", "🐄 Assign Cows", "📊 Production Reports", "📋 Daily Records", "⚙️ System Settings"])
-    
+# Tabs for worker functions - Bulk Entry is now the default tab
+    tab2, tab1, tab3, tab4 = st.tabs(["📊 बल्क एंट्री", "🥛 दूध लॉग करें", "📈 मेरे रिकॉर्ड", "🐄 गाय की स्थिति"])    
     with tab1:
         st.subheader("Worker Management")
         
