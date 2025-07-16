@@ -430,6 +430,9 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         text-align: center;
     }
+    .big-label { font-size: 1.3em; font-weight: bold; }
+    .big-input input { font-size: 1.2em !important; height: 2.5em !important; }
+    .big-button button { font-size: 1.3em !important; height: 3em !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -720,6 +723,14 @@ def show_supervisor_dashboard():
 def show_worker_dashboard():
     worker_name = st.session_state.current_user
 
+    st.markdown("""
+    <style>
+    .big-label { font-size: 1.3em; font-weight: bold; }
+    .big-input input { font-size: 1.2em !important; height: 2.5em !important; }
+    .big-button button { font-size: 1.3em !important; height: 3em !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
     st.markdown(f"""
     <div class="worker-header">
         <h1>👨‍🌾 कामगार डैशबोर्ड</h1>
@@ -733,36 +744,60 @@ def show_worker_dashboard():
         st.warning("⚠️ अभी तक आपको कोई गाय नहीं दी गई है। कृपया अपने सुपरवाइज़र से संपर्क करें।")
         return
 
-    st.subheader("📝 अपनी सभी गायों के लिए दूध मात्रा दर्ज करें")
-    st.info("नीचे अपनी सभी गायों के लिए दूध की मात्रा (लीटर) दर्ज करें और 'सभी एंट्री सेव करें' दबाएँ।")
+    # Determine session
+    now = datetime.now()
+    session = "Morning" if now.hour < 12 else "Evening"
+    session_display = "सुबह" if session == "Morning" else "शाम"
+    today_str = str(date.today())
 
-    # Form for all cows
-    with st.form("bulk_entry_form"):
+    # Filter cows not already logged for this session today
+    already_logged = set()
+    for record in st.session_state.milk_data:
+        if (record['date'] == today_str and
+            record['time'] == session and
+            record['worker'] == worker_name):
+            already_logged.add(record['cow_number'])
+    cows_to_log = [cow for cow in assigned_cows if cow not in already_logged]
+
+    st.markdown(f"### {session_display} | {today_str}")
+    if not cows_to_log:
+        st.success("🎉 आज की सभी गायों का दूध दर्ज हो चुका है!")
+        if st.button("🚪 लॉग आउट", key="worker_logout"):
+            st.session_state.role = None
+            st.session_state.current_user = None
+            st.rerun()
+        return
+
+    st.info("केवल उन गायों के लिए दूध दर्ज करें जिनका दूध निकाला गया है।")
+
+    with st.form("easy_entry_form"):
         milk_inputs = {}
-        notes_inputs = {}
-        for cow in sorted(assigned_cows):
-            col1, col2 = st.columns([2, 3])
-            with col1:
-                milk = st.number_input(f"गाय #{cow} (लीटर)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f", key=f"milk_{cow}")
-            with col2:
-                notes = st.text_input(f"नोट्स (गाय #{cow})", key=f"notes_{cow}", placeholder="कोई टिप्पणी...")
+        for cow in sorted(cows_to_log):
+            milk = st.number_input(
+                f"गाय #{cow} (लीटर)", 
+                min_value=0.0, 
+                max_value=100.0, 
+                step=0.1, 
+                format="%.1f", 
+                key=f"milk_{cow}",
+                help="दूध की मात्रा दर्ज करें",
+                label_visibility="visible"
+            )
             milk_inputs[cow] = milk
-            notes_inputs[cow] = notes
 
-        submitted = st.form_submit_button("🚀 सभी एंट्री सेव करें")
+        submitted = st.form_submit_button("🚀 सभी एंट्री सेव करें", use_container_width=True)
         if submitted:
             count = 0
-            session = "Morning" if datetime.now().hour < 12 else "Evening"
             for cow, milk in milk_inputs.items():
                 if milk > 0:
                     new_record = {
-                        'date': str(date.today()),
+                        'date': today_str,
                         'time': session,
                         'cow_number': cow,
                         'milk_liters': milk,
                         'worker': worker_name,
-                        'notes': notes_inputs[cow],
-                        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        'notes': "",
+                        'timestamp': now.strftime("%Y-%m-%d %H:%M:%S")
                     }
                     st.session_state.milk_data.append(new_record)
                     st.session_state.unsaved_milk_data.append(new_record)
