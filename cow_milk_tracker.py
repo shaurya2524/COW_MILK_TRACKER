@@ -750,67 +750,105 @@ def show_worker_dashboard():
     session_display = "सुबह" if session == "Morning" else "शाम"
     today_str = str(date.today())
 
-    # Filter cows not already logged for this session today
-    already_logged = set()
-    for record in st.session_state.milk_data:
-        if (record['date'] == today_str and
-            record['time'] == session and
-            record['worker'] == worker_name):
-            already_logged.add(record['cow_number'])
+    # Get all records for this worker, today, this session
+    session_records = [
+        record for record in st.session_state.milk_data
+        if record['date'] == today_str and record['time'] == session and record['worker'] == worker_name
+    ]
+    already_logged = set(record['cow_number'] for record in session_records)
     cows_to_log = [cow for cow in assigned_cows if cow not in already_logged]
 
     st.markdown(f"### {session_display} | {today_str}")
-    if not cows_to_log:
-        st.success("🎉 आज की सभी गायों का दूध दर्ज हो चुका है!")
-        if st.button("🚪 लॉग आउट", key="worker_logout"):
-            st.session_state.role = None
-            st.session_state.current_user = None
-            st.rerun()
-        return
 
-    st.info("केवल उन गायों के लिए दूध दर्ज करें जिनका दूध निकाला गया है।")
+    # Show session total
+    total_milk = sum(record['milk_liters'] for record in session_records)
+    st.success(f"**{session_display} सत्र का कुल दूध:** {total_milk:.1f} लीटर")
 
-    with st.form("easy_entry_form"):
-        milk_inputs = {}
-        for cow in sorted(cows_to_log):
-            milk = st.number_input(
-                f"गाय #{cow} (लीटर)", 
-                min_value=0.0, 
-                max_value=100.0, 
-                step=0.1, 
-                format="%.1f", 
-                key=f"milk_{cow}",
-                help="दूध की मात्रा दर्ज करें",
-                label_visibility="visible"
-            )
-            milk_inputs[cow] = milk
-
-        submitted = st.form_submit_button("🚀 सभी एंट्री सेव करें", use_container_width=True)
-        if submitted:
-            count = 0
-            for cow, milk in milk_inputs.items():
-                if milk > 0:
-                    new_record = {
-                        'date': today_str,
-                        'time': session,
-                        'cow_number': cow,
-                        'milk_liters': milk,
-                        'worker': worker_name,
-                        'notes': "",
-                        'timestamp': now.strftime("%Y-%m-%d %H:%M:%S")
-                    }
-                    st.session_state.milk_data.append(new_record)
-                    st.session_state.unsaved_milk_data.append(new_record)
-                    count += 1
-            if count > 0:
-                if auto_save_milk_data():
-                    st.success(f"✅ {count} रिकॉर्ड सफलतापूर्वक सेव किए गए!")
-                    st.balloons()
+    # Show already entered records with edit/delete options
+    if session_records:
+        st.markdown("#### दर्ज की गई एंट्री (संपादित/हटाएँ)")
+        for record in sorted(session_records, key=lambda r: r['cow_number']):
+            col1, col2, col3 = st.columns([3, 2, 2])
+            with col1:
+                st.markdown(f"**गाय #{record['cow_number']}** — {record['milk_liters']} लीटर")
+            with col2:
+                if st.button("✏️ संपादित करें", key=f"edit_{record['cow_number']}"):
+                    st.session_state['edit_cow'] = record['cow_number']
+            with col3:
+                if st.button("🗑️ हटाएँ", key=f"delete_{record['cow_number']}"):
+                    st.session_state.milk_data = [
+                        r for r in st.session_state.milk_data
+                        if not (r['date'] == today_str and r['time'] == session and r['worker'] == worker_name and r['cow_number'] == record['cow_number'])
+                    ]
+                    st.success(f"गाय #{record['cow_number']} की एंट्री हटा दी गई।")
                     st.rerun()
+
+    # Edit form if needed
+    if 'edit_cow' in st.session_state:
+        edit_cow = st.session_state['edit_cow']
+        record = next((r for r in session_records if r['cow_number'] == edit_cow), None)
+        if record:
+            st.markdown(f"#### गाय #{edit_cow} की एंट्री संपादित करें")
+            with st.form(f"edit_form_{edit_cow}"):
+                new_milk = st.number_input("दूध (लीटर)", min_value=0.0, max_value=100.0, value=record['milk_liters'], step=0.1, format="%.1f")
+                submitted = st.form_submit_button("✅ अपडेट करें")
+                if submitted:
+                    for r in st.session_state.milk_data:
+                        if (r['date'] == today_str and r['time'] == session and r['worker'] == worker_name and r['cow_number'] == edit_cow):
+                            r['milk_liters'] = new_milk
+                            r['timestamp'] = now.strftime("%Y-%m-%d %H:%M:%S")
+                    st.success("रिकॉर्ड अपडेट हो गया।")
+                    del st.session_state['edit_cow']
+                    auto_save_milk_data()
+                    st.rerun()
+            if st.button("❌ रद्द करें", key="cancel_edit"):
+                del st.session_state['edit_cow']
+                st.rerun()
+
+    # Entry form for cows not yet logged
+    if cows_to_log:
+        st.info("केवल उन गायों के लिए दूध दर्ज करें जिनका दूध निकाला गया है।")
+        with st.form("easy_entry_form"):
+            milk_inputs = {}
+            for cow in sorted(cows_to_log):
+                milk = st.number_input(
+                    f"गाय #{cow} (लीटर)", 
+                    min_value=0.0, 
+                    max_value=100.0, 
+                    step=0.1, 
+                    format="%.1f", 
+                    key=f"milk_{cow}",
+                    help="दूध की मात्रा दर्ज करें",
+                    label_visibility="visible"
+                )
+                milk_inputs[cow] = milk
+
+            submitted = st.form_submit_button("🚀 सभी एंट्री सेव करें", use_container_width=True)
+            if submitted:
+                count = 0
+                for cow, milk in milk_inputs.items():
+                    if milk > 0:
+                        new_record = {
+                            'date': today_str,
+                            'time': session,
+                            'cow_number': cow,
+                            'milk_liters': milk,
+                            'worker': worker_name,
+                            'notes': "",
+                            'timestamp': now.strftime("%Y-%m-%d %H:%M:%S")
+                        }
+                        st.session_state.milk_data.append(new_record)
+                        st.session_state.unsaved_milk_data.append(new_record)
+                        count += 1
+                if count > 0:
+                    if auto_save_milk_data():
+                        st.success(f"✅ {count} रिकॉर्ड सफलतापूर्वक सेव किए गए!")
+                        st.balloons()
+                        st.rerun()
+                    else:
+                        st.error("गूगल शीट्स में सेव नहीं हो सका, लेकिन स्थानीय रूप से सेव हो गया")
                 else:
-                    st.error("गूगल शीट्स में सेव नहीं हो सका, लेकिन स्थानीय रूप से सेव हो गया")
-            else:
-                st.warning("कृपया कम से कम एक गाय के लिए दूध मात्रा दर्ज करें।")
+                    st.warning("कृपया कम से कम एक गाय के लिए दूध मात्रा दर्ज करें।")
 
     # Retry unsaved data
     if st.session_state.unsaved_milk_data:
