@@ -171,30 +171,29 @@ def load_milk_data_from_sheets(sheet):
         st.error(f"Error loading milk data: {e}")
         return []
 
-def save_milk_data_to_sheets(sheet, milk_data):
-    """Save all milk data to Google Sheets"""
+def append_milk_data_to_sheets(sheet, new_records):
+    """Append only new milk data to Google Sheets, never clear the sheet."""
     try:
         worksheet = get_worksheet(sheet, "milk_data")
-        worksheet.clear()
-        
-        if milk_data:
-            # Get headers from first record
-            headers = list(milk_data[0].keys())
-            worksheet.append_row(headers)
-            
-            # Add data rows
-            for record in milk_data:
+        if new_records:
+            headers = list(new_records[0].keys())
+            if not worksheet.get_all_records():
+                worksheet.append_row(headers)
+            for record in new_records:
                 row = [record.get(header, '') for header in headers]
                 worksheet.append_row(row)
-        else:
-            # Just add headers if no data
-            headers = ['date', 'time', 'cow_number', 'milk_liters', 'worker', 'notes', 'timestamp']
-            worksheet.append_row(headers)
-        
         return True
     except Exception as e:
-        st.error(f"Failed to save milk data: {e}")
+        st.error(f"Failed to append milk data: {e}")
         return False
+
+def auto_save_milk_data():
+    if st.session_state.gsheets_conn and st.session_state.unsaved_milk_data:
+        success = append_milk_data_to_sheets(st.session_state.gsheets_conn, st.session_state.unsaved_milk_data)
+        if success:
+            st.session_state.unsaved_milk_data = []
+        return success
+    return False
 
 def load_system_config_from_sheets(sheet):
     """Load system config from Google Sheets"""
@@ -363,6 +362,9 @@ def initialize_session_state():
         if 'cows' not in st.session_state:
             st.session_state.cows = list(range(1, 51))
 
+    if 'unsaved_milk_data' not in st.session_state:
+        st.session_state.unsaved_milk_data = []
+
 initialize_session_state()
 
 # Auto-save functions
@@ -374,11 +376,6 @@ def auto_save_workers():
 def auto_save_cow_assignments():
     if st.session_state.gsheets_conn:
         return save_cow_assignments_to_sheets(st.session_state.gsheets_conn, st.session_state.cow_assignments)
-    return False
-
-def auto_save_milk_data():
-    if st.session_state.gsheets_conn:
-        return save_milk_data_to_sheets(st.session_state.gsheets_conn, st.session_state.milk_data)
     return False
 
 def auto_save_system_config():
@@ -1041,6 +1038,7 @@ def show_worker_dashboard():
                             }
                             
                             st.session_state.milk_data.append(new_record)
+                            st.session_state.unsaved_milk_data.append(new_record)
                             # Save to Google Sheets
                             if auto_save_milk_data():
                                 st.success(f"✅ गाय #{selected_cow} से {milk_amount}L दूध सफलतापूर्वक लॉग किया गया")
@@ -1151,6 +1149,7 @@ def show_worker_dashboard():
                             }
                             
                             st.session_state.milk_data.append(new_record)
+                            st.session_state.unsaved_milk_data.append(new_record)
                             success_count += 1
                             
                         except Exception as e:
@@ -1270,6 +1269,14 @@ def show_worker_dashboard():
                 st.info("गाय की स्थिति दिखाने के लिए अभी तक कोई दुहाई का रिकॉर्ड नहीं है")
         else:
             st.info("कोई डेटा उपलब्ध नहीं है")
+
+    if st.session_state.unsaved_milk_data:
+        st.warning("⚠️ Some milk data could not be saved to Google Sheets. It is safe locally. Please check your connection and try again.")
+        if st.button("🔄 Retry Saving Unsaved Data"):
+            if auto_save_milk_data():
+                st.success("✅ Unsaved data successfully saved to Google Sheets!")
+            else:
+                st.error("❌ Still unable to save. Data is safe locally.")
 
 # Main Application Flow
 def main():
